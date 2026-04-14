@@ -31,7 +31,7 @@ class MichaelBurrySignal(BaseModel):
 
 def michael_burry_agent(state: AgentState, agent_id: str = "michael_burry_agent"):
     """Analyse stocks using Michael Burry's deep‑value, contrarian framework."""
-    api_key = get_api_key_from_state(state, "FINANCIAL_DATASETS_API_KEY")
+    api_key = get_api_key_from_state(state, "TUSHARE_TOKEN")
     data = state["data"]
     end_date: str = data["end_date"]  # YYYY‑MM‑DD
     tickers: list[str] = data["tickers"]

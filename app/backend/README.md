@@ -44,9 +44,14 @@ OPENAI_API_KEY=your-openai-api-key
 # For running LLMs hosted by groq (deepseek, llama3, etc.)
 GROQ_API_KEY=your-groq-api-key
 
-# For getting financial data to power the hedge fund
-FINANCIAL_DATASETS_API_KEY=your-financial-datasets-api-key
+# For getting A-share financial data via Tushare
+TUSHARE_TOKEN=your-tushare-token
+
+# For running LLMs hosted by Moonshot (kimi-k2, kimi-k2.5, etc.)
+MOONSHOT_API_KEY=your-moonshot-api-key
 ```
+
+**Note**: This fork only supports A-share stocks (e.g. `000001.SZ`, `600519.SH`).
 
 ## Running the Server
 

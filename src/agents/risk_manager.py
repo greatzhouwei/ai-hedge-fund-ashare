@@ -13,7 +13,7 @@ def risk_management_agent(state: AgentState, agent_id: str = "risk_management_ag
     portfolio = state["data"]["portfolio"]
     data = state["data"]
     tickers = data["tickers"]
-    api_key = get_api_key_from_state(state, "FINANCIAL_DATASETS_API_KEY")
+    api_key = get_api_key_from_state(state, "TUSHARE_TOKEN")
     
     # Initialize risk analysis for each ticker
     risk_analysis = {}
@@ -162,7 +162,7 @@ def risk_management_agent(state: AgentState, agent_id: str = "risk_management_ag
         
         # Combine volatility and correlation adjustments
         combined_limit_pct = vol_adjusted_limit_pct * corr_multiplier
-        # Convert to dollar position limit
+        # Convert to RMB position limit
         position_limit = total_portfolio_value * combined_limit_pct
         
         # Calculate remaining limit for this position
@@ -197,7 +197,7 @@ def risk_management_agent(state: AgentState, agent_id: str = "risk_management_ag
         progress.update_status(
             agent_id, 
             ticker, 
-            f"Adj. limit: {combined_limit_pct:.1%}, Available: ${max_position_size:.0f}"
+            f"Adj. limit: {combined_limit_pct:.1%}, Available: ¥{max_position_size:.0f}"
         )
 
     progress.update_status(agent_id, None, "Done")

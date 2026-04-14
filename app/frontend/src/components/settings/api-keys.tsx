@@ -15,11 +15,11 @@ interface ApiKey {
 
 const FINANCIAL_API_KEYS: ApiKey[] = [
   {
-    key: 'FINANCIAL_DATASETS_API_KEY',
-    label: 'Financial Datasets API',
-    description: 'For getting financial data to power the hedge fund',
-    url: 'https://financialdatasets.ai/',
-    placeholder: 'your-financial-datasets-api-key'
+    key: 'TUSHARE_TOKEN',
+    label: 'Tushare Token',
+    description: 'For getting A-share financial data via Tushare',
+    url: 'https://tushare.pro/register',
+    placeholder: 'your-tushare-token'
   }
 ];
 
@@ -72,6 +72,13 @@ const LLM_API_KEYS: ApiKey[] = [
     description: 'For GigaChat models (GigaChat-2-Max, etc.)',
     url: 'https://github.com/ai-forever/gigachat',
     placeholder: 'your-gigachat-api-key'
+  },
+  {
+    key: 'MOONSHOT_API_KEY',
+    label: 'Moonshot API',
+    description: 'For Kimi models (kimi-k2, kimi-k2.5, etc.)',
+    url: 'https://platform.moonshot.cn/',
+    placeholder: 'your-moonshot-api-key'
   }
 ];
 

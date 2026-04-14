@@ -24,7 +24,7 @@ def valuation_analyst_agent(state: AgentState, agent_id: str = "valuation_analys
     data = state["data"]
     end_date = data["end_date"]
     tickers = data["tickers"]
-    api_key = get_api_key_from_state(state, "FINANCIAL_DATASETS_API_KEY")
+    api_key = get_api_key_from_state(state, "TUSHARE_TOKEN")
     valuation_analysis: dict[str, dict] = {}
 
     for ticker in tickers:
@@ -168,16 +168,16 @@ def valuation_analyst_agent(state: AgentState, agent_id: str = "valuation_analys
         for m, vals in method_values.items():
             if vals["value"] > 0:
                 base_details = (
-                    f"Value: ${vals['value']:,.2f}, Market Cap: ${market_cap:,.2f}, "
+                    f"Value: ¥{vals['value']:,.2f}, Market Cap: ¥{market_cap:,.2f}, "
                     f"Gap: {vals['gap']:.1%}, Weight: {vals['weight']*100:.0f}%"
                 )
-                
+
                 # Add enhanced DCF details
                 if m == "dcf" and 'dcf_results' in locals():
                     enhanced_details = (
                         f"{base_details}\n"
-                        f"  WACC: {wacc:.1%}, Bear: ${dcf_results['downside']:,.2f}, "
-                        f"Bull: ${dcf_results['upside']:,.2f}, Range: ${dcf_results['range']:,.2f}"
+                        f"  WACC: {wacc:.1%}, Bear: ¥{dcf_results['downside']:,.2f}, "
+                        f"Bull: ¥{dcf_results['upside']:,.2f}, Range: ¥{dcf_results['range']:,.2f}"
                     )
                 else:
                     enhanced_details = base_details
@@ -193,9 +193,9 @@ def valuation_analyst_agent(state: AgentState, agent_id: str = "valuation_analys
         # Add overall DCF scenario summary if available
         if 'dcf_results' in locals():
             reasoning["dcf_scenario_analysis"] = {
-                "bear_case": f"${dcf_results['downside']:,.2f}",
-                "base_case": f"${dcf_results['scenarios']['base']:,.2f}",  
-                "bull_case": f"${dcf_results['upside']:,.2f}",
+                "bear_case": f"¥{dcf_results['downside']:,.2f}",
+                "base_case": f"¥{dcf_results['scenarios']['base']:,.2f}",
+                "bull_case": f"¥{dcf_results['upside']:,.2f}",
                 "wacc_used": f"{wacc:.1%}",
                 "fcf_periods_analyzed": len(fcf_history)
             }

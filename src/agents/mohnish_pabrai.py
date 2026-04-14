@@ -21,7 +21,7 @@ def mohnish_pabrai_agent(state: AgentState, agent_id: str = "mohnish_pabrai_agen
     data = state["data"]
     end_date = data["end_date"]
     tickers = data["tickers"]
-    api_key = get_api_key_from_state(state, "FINANCIAL_DATASETS_API_KEY")
+    api_key = get_api_key_from_state(state, "TUSHARE_TOKEN")
 
     analysis_data: dict[str, any] = {}
     pabrai_analysis: dict[str, any] = {}
@@ -148,9 +148,9 @@ def analyze_downside_protection(financial_line_items: list) -> dict[str, any]:
         net_cash = cash - debt
         if net_cash > 0:
             score += 3
-            details.append(f"Net cash position: ${net_cash:,.0f}")
+            details.append(f"Net cash position: ¥{net_cash:,.0f}")
         else:
-            details.append(f"Net debt position: ${net_cash:,.0f}")
+            details.append(f"Net debt position: ¥{net_cash:,.0f}")
 
     # Current ratio
     if current_assets is not None and current_liabilities is not None and current_liabilities > 0:

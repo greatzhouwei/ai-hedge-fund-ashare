@@ -30,7 +30,7 @@ def _find_price_fixture_file(ticker: str, start: str, end: str) -> Path | None:
 def _load_price_df_from_fixture(ticker: str, start: str, end: str) -> pd.DataFrame:
     fixture_path = _find_price_fixture_file(ticker, start, end)
     assert fixture_path is not None, f"Missing price fixture for {ticker} covering {start}..{end}"
-    with fixture_path.open("r") as f:
+    with fixture_path.open("r", encoding="utf-8") as f:
         data = json.load(f)
     # Build DataFrame similar to prices_to_df output
     df = pd.DataFrame([p for p in data["prices"]])
@@ -63,7 +63,7 @@ def _find_fm_fixture_file(ticker: str, end: str) -> Path | None:
 def _load_financial_metrics_from_fixture(ticker: str, end: str, limit: int) -> list[dict]:
     fixture_path = _find_fm_fixture_file(ticker, end)
     assert fixture_path is not None, f"Missing financial metrics fixture for {ticker} covering ..{end}"
-    with fixture_path.open("r") as f:
+    with fixture_path.open("r", encoding="utf-8") as f:
         data = json.load(f)
     # data should match FinancialMetricsResponse
     items = data.get("financial_metrics", [])
@@ -83,7 +83,7 @@ def _load_news_from_fixture(ticker: str, start: str | None, end: str, limit: int
             if len(parts) >= 3 and parts[1] <= end <= parts[2]:
                 fixture_path = p
                 break
-    with fixture_path.open("r") as f:
+    with fixture_path.open("r", encoding="utf-8") as f:
         data = json.load(f)
     items = data.get("news", [])
     return items[:limit]
@@ -98,7 +98,7 @@ def _load_insider_from_fixture(ticker: str, start: str | None, end: str, limit: 
             if len(parts) >= 3 and parts[1] <= end <= parts[2]:
                 fixture_path = p
                 break
-    with fixture_path.open("r") as f:
+    with fixture_path.open("r", encoding="utf-8") as f:
         data = json.load(f)
     items = data.get("insider_trades", [])
     return items[:limit]

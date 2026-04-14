@@ -21,7 +21,7 @@ def warren_buffett_agent(state: AgentState, agent_id: str = "warren_buffett_agen
     data = state["data"]
     end_date = data["end_date"]
     tickers = data["tickers"]
-    api_key = get_api_key_from_state(state, "FINANCIAL_DATASETS_API_KEY")
+    api_key = get_api_key_from_state(state, "TUSHARE_TOKEN")
     # Collect all analysis for LLM reasoning
     analysis_data = {}
     buffett_analysis = {}
@@ -419,7 +419,7 @@ def calculate_owner_earnings(financial_line_items: list) -> dict[str, any]:
                 wc_current = current_assets_current - current_liab_current
                 wc_previous = current_assets_previous - current_liab_previous
                 working_capital_change = wc_current - wc_previous
-                details.append(f"Working capital change: ${working_capital_change:,.0f}")
+                details.append(f"Working capital change: ¥{working_capital_change:,.0f}")
         except:
             pass  # Skip working capital adjustment if data unavailable
 
@@ -434,10 +434,10 @@ def calculate_owner_earnings(financial_line_items: list) -> dict[str, any]:
         details.append("Warning: Estimated maintenance capex seems high relative to depreciation")
 
     details.extend([
-        f"Net income: ${net_income:,.0f}",
-        f"Depreciation: ${depreciation:,.0f}",
-        f"Estimated maintenance capex: ${maintenance_capex:,.0f}",
-        f"Owner earnings: ${owner_earnings:,.0f}"
+        f"Net income: ¥{net_income:,.0f}",
+        f"Depreciation: ¥{depreciation:,.0f}",
+        f"Estimated maintenance capex: ¥{maintenance_capex:,.0f}",
+        f"Owner earnings: ¥{owner_earnings:,.0f}"
     ])
 
     return {
@@ -598,12 +598,12 @@ def calculate_intrinsic_value(financial_line_items: list) -> dict[str, any]:
     conservative_intrinsic_value = intrinsic_value * 0.85  # 15% additional haircut
 
     details.extend([
-        f"Stage 1 PV: ${stage1_pv:,.0f}",
-        f"Stage 2 PV: ${stage2_pv:,.0f}",
-        f"Terminal PV: ${terminal_pv:,.0f}",
-        f"Total IV: ${intrinsic_value:,.0f}",
-        f"Conservative IV (15% haircut): ${conservative_intrinsic_value:,.0f}",
-        f"Owner earnings: ${owner_earnings:,.0f}",
+        f"Stage 1 PV: ¥{stage1_pv:,.0f}",
+        f"Stage 2 PV: ¥{stage2_pv:,.0f}",
+        f"Terminal PV: ¥{terminal_pv:,.0f}",
+        f"Total IV: ¥{intrinsic_value:,.0f}",
+        f"Conservative IV (15% haircut): ¥{conservative_intrinsic_value:,.0f}",
+        f"Owner earnings: ¥{owner_earnings:,.0f}",
         f"Discount rate: {discount_rate:.1%}"
     ])
 

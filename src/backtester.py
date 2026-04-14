@@ -30,8 +30,8 @@ def run_backtest(backtester: BacktestEngine) -> PerformanceMetrics | None:
                 last_value = portfolio_values[-1]["Portfolio Value"]
                 total_return = ((last_value - first_value) / first_value) * 100
                 
-                print(f"{Fore.CYAN}Initial Portfolio Value: ${first_value:,.2f}{Style.RESET_ALL}")
-                print(f"{Fore.CYAN}Final Portfolio Value: ${last_value:,.2f}{Style.RESET_ALL}")
+                print(f"{Fore.CYAN}Initial Portfolio Value: ¥{first_value:,.2f}{Style.RESET_ALL}")
+                print(f"{Fore.CYAN}Final Portfolio Value: ¥{last_value:,.2f}{Style.RESET_ALL}")
                 print(f"{Fore.CYAN}Total Return: {total_return:+.2f}%{Style.RESET_ALL}")
         except Exception as e:
             print(f"{Fore.RED}Could not generate partial results: {str(e)}{Style.RESET_ALL}")

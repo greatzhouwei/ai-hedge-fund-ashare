@@ -227,7 +227,7 @@ class BacktestService:
         end_date_dt = datetime.strptime(self.end_date, "%Y-%m-%d")
         start_date_dt = end_date_dt - relativedelta(years=1)
         start_date_str = start_date_dt.strftime("%Y-%m-%d")
-        api_key = self.request.api_keys.get("FINANCIAL_DATASETS_API_KEY")
+        api_key = self.request.api_keys.get("TUSHARE_TOKEN")
 
         for ticker in self.tickers:
             get_prices(ticker, start_date_str, self.end_date, api_key=api_key)

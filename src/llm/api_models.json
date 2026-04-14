@@ -65,6 +65,16 @@
     "provider": "GigaChat"
   },
   {
+    "display_name": "Kimi K2",
+    "model_name": "kimi-k2-0717preview",
+    "provider": "Moonshot"
+  },
+  {
+    "display_name": "Kimi K2.5",
+    "model_name": "kimi-k2.5",
+    "provider": "Moonshot"
+  },
+  {
     "display_name": "Azure Open AI Deployment",
     "model_name": "",
     "provider": "Azure OpenAI"

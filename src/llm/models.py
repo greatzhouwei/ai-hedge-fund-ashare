@@ -30,6 +30,7 @@ class ModelProvider(str, Enum):
     GIGACHAT = "GigaChat"
     AZURE_OPENAI = "Azure OpenAI"
     XAI = "xAI"
+    MOONSHOT = "Moonshot"
 
 
 class LLMModel(BaseModel):
@@ -215,6 +216,12 @@ def get_model(model_name: str, model_provider: ModelProvider, api_keys: dict = N
                 raise ValueError("GigaChat API key not found. Please make sure GIGACHAT_API_KEY is set in your .env file or provided via API keys.")
 
             return GigaChat(credentials=api_key, model=model_name)
+    elif model_provider == ModelProvider.MOONSHOT:
+        api_key = (api_keys or {}).get("MOONSHOT_API_KEY") or os.getenv("MOONSHOT_API_KEY")
+        if not api_key:
+            print(f"API Key Error: Please make sure MOONSHOT_API_KEY is set in your .env file or provided via API keys.")
+            raise ValueError("Moonshot API key not found. Please make sure MOONSHOT_API_KEY is set in your .env file or provided via API keys.")
+        return ChatOpenAI(model=model_name, api_key=api_key, base_url="https://api.moonshot.cn/v1")
     elif model_provider == ModelProvider.AZURE_OPENAI:
         # Get and validate API key
         api_key = os.getenv("AZURE_OPENAI_API_KEY")

@@ -71,6 +71,46 @@ class LineItem(BaseModel):
     period: str
     currency: str
 
+    # Common line-item fields accessed by agents (default None to avoid AttributeError)
+    earnings_per_share: float | None = None
+    book_value_per_share: float | None = None
+    current_assets: float | None = None
+    current_liabilities: float | None = None
+    net_income: float | None = None
+    capital_expenditure: float | None = None
+    revenue: float | None = None
+    depreciation_and_amortization: float | None = None
+    shareholders_equity: float | None = None
+    outstanding_shares: float | None = None
+    gross_margin: float | None = None
+    operating_expense: float | None = None
+    research_and_development: float | None = None
+    free_cash_flow: float | None = None
+    operating_margin: float | None = None
+    operating_income: float | None = None
+    dividends_and_other_cash_distributions: float | None = None
+    debt_to_equity: float | None = None
+    total_liabilities: float | None = None
+    total_assets: float | None = None
+    return_on_invested_capital: float | None = None
+    goodwill_and_intangible_assets: float | None = None
+    total_debt: float | None = None
+    cash_and_equivalents: float | None = None
+    inventory: float | None = None
+    accounts_receivable: float | None = None
+    working_capital: float | None = None
+    interest_expense: float | None = None
+    income_tax_expense: float | None = None
+    selling_general_and_administrative: float | None = None
+    property_plant_equipment: float | None = None
+    long_term_debt: float | None = None
+    short_term_debt: float | None = None
+    operating_cash_flow: float | None = None
+    cash_flow_from_investing: float | None = None
+    cash_flow_from_financing: float | None = None
+    issuance_or_purchase_of_equity_shares: float | None = None
+    ebitda: float | None = None
+
     # Allow additional fields dynamically
     model_config = {"extra": "allow"}
 
@@ -116,7 +156,7 @@ class CompanyNewsResponse(BaseModel):
 class CompanyFacts(BaseModel):
     ticker: str
     name: str
-    cik: str | None = None
+    area: str | None = None
     industry: str | None = None
     sector: str | None = None
     category: str | None = None
@@ -126,10 +166,6 @@ class CompanyFacts(BaseModel):
     location: str | None = None
     market_cap: float | None = None
     number_of_employees: int | None = None
-    sec_filings_url: str | None = None
-    sic_code: str | None = None
-    sic_industry: str | None = None
-    sic_sector: str | None = None
     website_url: str | None = None
     weighted_average_shares: int | None = None
 

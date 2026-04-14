@@ -34,7 +34,7 @@ def nassim_taleb_agent(state: AgentState, agent_id: str = "nassim_taleb_agent"):
     data = state["data"]
     end_date = data["end_date"]
     tickers = data["tickers"]
-    api_key = get_api_key_from_state(state, "FINANCIAL_DATASETS_API_KEY")
+    api_key = get_api_key_from_state(state, "TUSHARE_TOKEN")
 
     # Look one year back for insider trades and news
     start_date = (datetime.fromisoformat(end_date) - timedelta(days=365)).date().isoformat()
@@ -285,10 +285,10 @@ def analyze_antifragility(metrics: list, line_items: list, market_cap: float | N
         net_cash = cash - total_debt
         if net_cash > 0 and market_cap and cash > 0.20 * market_cap:
             score += 3
-            reasoning.append(f"War chest: net cash ${net_cash:,.0f}, cash is {cash / market_cap:.0%} of market cap")
+            reasoning.append(f"War chest: net cash ¥{net_cash:,.0f}, cash is {cash / market_cap:.0%} of market cap")
         elif net_cash > 0:
             score += 2
-            reasoning.append(f"Net cash positive (${net_cash:,.0f})")
+            reasoning.append(f"Net cash positive (¥{net_cash:,.0f})")
         elif total_assets and total_debt < 0.30 * total_assets:
             score += 1
             reasoning.append("Net debt but manageable relative to assets")

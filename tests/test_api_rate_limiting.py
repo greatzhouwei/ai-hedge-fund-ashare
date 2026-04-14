@@ -1,249 +1,165 @@
 import os
 import pytest
-from unittest.mock import Mock, patch, call
+from unittest.mock import Mock, patch, MagicMock
+import pandas as pd
 
-from src.tools.api import _make_api_request, get_prices
+from src.tools import api as api_module
+from src.data.models import Price, FinancialMetrics, LineItem, InsiderTrade, CompanyNews
 
-class TestRateLimiting:
-    """Test suite for API rate limiting functionality."""
 
-    @patch('src.tools.api.time.sleep')
-    @patch('src.tools.api.requests.get')
-    def test_handles_single_rate_limit(self, mock_get, mock_sleep):
-        """Test that API retries once after a 429 and succeeds."""
-        # Setup mock responses: first 429, then 200
-        mock_429_response = Mock()
-        mock_429_response.status_code = 429
-        
-        mock_200_response = Mock()
-        mock_200_response.status_code = 200
-        mock_200_response.text = "Success"
-        
-        mock_get.side_effect = [mock_429_response, mock_200_response]
-        
-        # Call the function
-        headers = {"X-API-KEY": "test-key"}
-        url = "https://api.financialdatasets.ai/test"
-        
-        result = _make_api_request(url, headers)
-        
-        # Verify behavior
-        assert result.status_code == 200
-        assert result.text == "Success"
-        
-        # Verify requests.get was called twice
-        assert mock_get.call_count == 2
-        mock_get.assert_has_calls([
-            call(url, headers=headers),
-            call(url, headers=headers)
+class TestTushareClient:
+    """Test suite for Tushare API client behavior."""
+
+    @patch.dict(os.environ, {"TUSHARE_TOKEN": "test-token"}, clear=True)
+    def test_missing_token_raises_value_error(self):
+        """Test that missing TUSHARE_TOKEN raises ValueError."""
+        with patch.dict(os.environ, {}, clear=True):
+            api_module._pro_api = None
+            with pytest.raises(ValueError, match="TUSHARE_TOKEN is not set"):
+                api_module._get_pro_api()
+
+    @patch.dict(os.environ, {"TUSHARE_TOKEN": "test-token"}, clear=True)
+    def test_get_prices_empty_dataframe_returns_empty_list(self):
+        """Test that empty DataFrame from Tushare returns empty list."""
+        mock_pro = Mock()
+        mock_pro.daily.return_value = pd.DataFrame()
+
+        with patch.object(api_module, "_pro_api", mock_pro):
+            result = api_module.get_prices("000001.SZ", "2024-01-01", "2024-01-10")
+            assert result == []
+            mock_pro.daily.assert_called_once_with(
+                ts_code="000001.SZ",
+                start_date="20240101",
+                end_date="20240110",
+            )
+
+    @patch.dict(os.environ, {"TUSHARE_TOKEN": "test-token"}, clear=True)
+    def test_get_prices_network_error_returns_empty_list(self):
+        """Test that network error returns empty list without crashing."""
+        mock_pro = Mock()
+        mock_pro.daily.side_effect = Exception("Network timeout")
+
+        with patch.object(api_module, "_pro_api", mock_pro):
+            result = api_module.get_prices("000001.SZ", "2024-01-01", "2024-01-10")
+            assert result == []
+
+    @patch.dict(os.environ, {"TUSHARE_TOKEN": "test-token"}, clear=True)
+    def test_get_prices_parses_records_correctly(self):
+        """Test that valid DataFrame is parsed into Price objects."""
+        mock_pro = Mock()
+        mock_pro.daily.return_value = pd.DataFrame([
+            {
+                "trade_date": "20240102",
+                "open": 10.5,
+                "close": 11.0,
+                "high": 11.2,
+                "low": 10.3,
+                "vol": 50000,
+            }
         ])
-        
-        # Verify sleep was called once with 60 seconds (first retry)
-        mock_sleep.assert_called_once_with(60)
 
-    @patch('src.tools.api.time.sleep')
-    @patch('src.tools.api.requests.get')
-    def test_handles_multiple_rate_limits(self, mock_get, mock_sleep):
-        """Test that API retries multiple times after 429s."""
-        # Setup mock responses: three 429s, then 200
-        mock_429_response = Mock()
-        mock_429_response.status_code = 429
-        
-        mock_200_response = Mock()
-        mock_200_response.status_code = 200
-        mock_200_response.text = "Success"
-        
-        mock_get.side_effect = [
-            mock_429_response, 
-            mock_429_response, 
-            mock_429_response, 
-            mock_200_response
-        ]
-        
-        # Call the function
-        headers = {"X-API-KEY": "test-key"}
-        url = "https://api.financialdatasets.ai/test"
-        
-        result = _make_api_request(url, headers)
-        
-        # Verify behavior
-        assert result.status_code == 200
-        assert result.text == "Success"
-        
-        # Verify requests.get was called 4 times
-        assert mock_get.call_count == 4
-        
-        # Verify sleep was called 3 times with linear backoff: 60s, 90s, 120s
-        assert mock_sleep.call_count == 3
-        expected_calls = [call(60), call(90), call(120)]
-        mock_sleep.assert_has_calls(expected_calls)
+        with patch.object(api_module, "_pro_api", mock_pro):
+            result = api_module.get_prices("000001.SZ", "2024-01-01", "2024-01-10")
+            assert len(result) == 1
+            assert isinstance(result[0], Price)
+            assert result[0].open == 10.5
+            assert result[0].close == 11.0
+            assert result[0].volume == 50000
+            assert result[0].time == "2024-01-02"
 
-    @patch('src.tools.api.time.sleep')
-    @patch('src.tools.api.requests.post')
-    def test_handles_post_rate_limiting(self, mock_post, mock_sleep):
-        """Test that POST requests handle rate limiting."""
-        # Setup mock responses: first 429, then 200
-        mock_429_response = Mock()
-        mock_429_response.status_code = 429
-        
-        mock_200_response = Mock()
-        mock_200_response.status_code = 200
-        mock_200_response.text = "Success"
-        
-        mock_post.side_effect = [mock_429_response, mock_200_response]
-        
-        # Call the function with POST method
-        headers = {"X-API-KEY": "test-key"}
-        url = "https://api.financialdatasets.ai/test"
-        json_data = {"test": "data"}
-        
-        result = _make_api_request(url, headers, method="POST", json_data=json_data)
-        
-        # Verify behavior
-        assert result.status_code == 200
-        assert result.text == "Success"
-        
-        # Verify requests.post was called twice
-        assert mock_post.call_count == 2
-        mock_post.assert_has_calls([
-            call(url, headers=headers, json=json_data),
-            call(url, headers=headers, json=json_data)
+    @patch.dict(os.environ, {"TUSHARE_TOKEN": "test-token"}, clear=True)
+    def test_get_financial_metrics_empty_dataframe_returns_empty_list(self):
+        """Test that empty fina_indicator DataFrame returns empty list."""
+        mock_pro = Mock()
+        mock_pro.fina_indicator.return_value = pd.DataFrame()
+        mock_pro.daily_basic.return_value = pd.DataFrame()
+
+        with patch.object(api_module, "_pro_api", mock_pro):
+            result = api_module.get_financial_metrics("000001.SZ", "2024-03-31")
+            assert result == []
+
+    @patch.dict(os.environ, {"TUSHARE_TOKEN": "test-token"}, clear=True)
+    def test_get_market_cap_empty_dataframe_returns_none(self):
+        """Test that empty daily_basic DataFrame returns None for market cap."""
+        mock_pro = Mock()
+        mock_pro.daily_basic.return_value = pd.DataFrame()
+
+        with patch.object(api_module, "_pro_api", mock_pro):
+            result = api_module.get_market_cap("000001.SZ", "2024-01-10")
+            assert result is None
+
+    @patch.dict(os.environ, {"TUSHARE_TOKEN": "test-token"}, clear=True)
+    def test_get_market_cap_converts_total_mv(self):
+        """Test that total_mv (万元) is converted to yuan (*10000)."""
+        mock_pro = Mock()
+        mock_pro.daily_basic.return_value = pd.DataFrame([
+            {"trade_date": "20240110", "total_mv": 12345.67}
         ])
-        
-        # Verify sleep was called once with 60 seconds (first retry)
-        mock_sleep.assert_called_once_with(60)
 
-    @patch('src.tools.api.time.sleep')
-    @patch('src.tools.api.requests.get')
-    def test_ignores_other_errors(self, mock_get, mock_sleep):
-        """Test that non-429 errors are returned without retrying."""
-        # Setup mock response: 500 error
-        mock_500_response = Mock()
-        mock_500_response.status_code = 500
-        mock_500_response.text = "Internal Server Error"
-        
-        mock_get.return_value = mock_500_response
-        
-        # Call the function
-        headers = {"X-API-KEY": "test-key"}
-        url = "https://api.financialdatasets.ai/test"
-        
-        result = _make_api_request(url, headers)
-        
-        # Verify behavior
-        assert result.status_code == 500
-        assert result.text == "Internal Server Error"
-        
-        # Verify requests.get was called only once
-        assert mock_get.call_count == 1
-        
-        # Verify sleep was never called
-        mock_sleep.assert_not_called()
+        with patch.object(api_module, "_pro_api", mock_pro):
+            result = api_module.get_market_cap("000001.SZ", "2024-01-10")
+            assert result == 12345.67 * 10000
 
-    @patch('src.tools.api.time.sleep')
-    @patch('src.tools.api.requests.get')
-    def test_normal_success_requests(self, mock_get, mock_sleep):
-        """Test that successful requests return immediately without retry."""
-        # Setup mock response: 200 success
-        mock_200_response = Mock()
-        mock_200_response.status_code = 200
-        mock_200_response.text = "Success"
-        
-        mock_get.return_value = mock_200_response
-        
-        # Call the function
-        headers = {"X-API-KEY": "test-key"}
-        url = "https://api.financialdatasets.ai/test"
-        
-        result = _make_api_request(url, headers)
-        
-        # Verify behavior
-        assert result.status_code == 200
-        assert result.text == "Success"
-        
-        # Verify requests.get was called only once
-        assert mock_get.call_count == 1
-        
-        # Verify sleep was never called
-        mock_sleep.assert_not_called()
+    @patch.dict(os.environ, {"TUSHARE_TOKEN": "test-token"}, clear=True)
+    def test_search_line_items_unknown_items_return_empty(self):
+        """Test that unknown line items return empty list with warning."""
+        mock_pro = Mock()
+        mock_pro.income.return_value = pd.DataFrame()
+        mock_pro.balancesheet.return_value = pd.DataFrame()
+        mock_pro.cashflow.return_value = pd.DataFrame()
 
-    @patch('src.tools.api._cache')
-    @patch('src.tools.api.time.sleep')
-    @patch('src.tools.api.requests.get')
-    def test_full_integration(self, mock_get, mock_sleep, mock_cache):
-        """Test that get_prices function properly handles rate limiting."""
-        # Mock cache to return None (cache miss)
-        mock_cache.get_prices.return_value = None
-        
-        # Setup mock responses: first 429, then 200 with valid data
-        mock_429_response = Mock()
-        mock_429_response.status_code = 429
-        
-        mock_200_response = Mock()
-        mock_200_response.status_code = 200
-        mock_200_response.json.return_value = {
-            "ticker": "AAPL",
-            "prices": [
-                {
-                    "time": "2024-01-01T00:00:00Z",
-                    "open": 100.0,
-                    "close": 101.0,
-                    "high": 102.0,
-                    "low": 99.0,
-                    "volume": 1000
-                }
-            ]
-        }
-        
-        mock_get.side_effect = [mock_429_response, mock_200_response]
-        
-        # Set environment variable for API key
-        with patch.dict(os.environ, {"FINANCIAL_DATASETS_API_KEY": "test-key"}):
-            # Call get_prices
-            result = get_prices("AAPL", "2024-01-01", "2024-01-02")
-        
-        # Verify the function succeeded and returned data
-        assert len(result) == 1
-        assert result[0].open == 100.0
-        assert result[0].close == 101.0
-        
-        # Verify rate limiting behavior
-        assert mock_get.call_count == 2
-        mock_sleep.assert_called_once_with(60)
-        
-        # Verify cache operations
-        mock_cache.get_prices.assert_called_once()
-        mock_cache.set_prices.assert_called_once()
+        with patch.object(api_module, "_pro_api", mock_pro):
+            result = api_module.search_line_items(
+                "000001.SZ",
+                ["totally_unknown_item"],
+                "2024-03-31",
+            )
+            assert result == []
 
-    @patch('src.tools.api.time.sleep')
-    @patch('src.tools.api.requests.get')
-    def test_max_retries_exceeded(self, mock_get, mock_sleep):
-        """Test that function stops retrying after max_retries and returns final 429."""
-        # Setup mock responses: all 429s (exceeds max retries)
-        mock_429_response = Mock()
-        mock_429_response.status_code = 429
-        mock_429_response.text = "Too Many Requests"
-        
-        mock_get.return_value = mock_429_response
-        
-        # Call the function with max_retries=2
-        headers = {"X-API-KEY": "test-key"}
-        url = "https://api.financialdatasets.ai/test"
-        
-        result = _make_api_request(url, headers, max_retries=2)
-        
-        # Verify final 429 is returned
-        assert result.status_code == 429
-        assert result.text == "Too Many Requests"
-        
-        # Verify requests.get was called 3 times (1 initial + 2 retries)
-        assert mock_get.call_count == 3
-        
-        # Verify sleep was called 2 times with linear backoff: 60s, 90s
-        assert mock_sleep.call_count == 2
-        expected_calls = [call(60), call(90)]
-        mock_sleep.assert_has_calls(expected_calls)
+    @patch.dict(os.environ, {"TUSHARE_TOKEN": "test-token"}, clear=True)
+    def test_search_line_items_maps_known_items(self):
+        """Test that known line items are mapped to correct Tushare tables."""
+        mock_pro = Mock()
+        mock_pro.income.return_value = pd.DataFrame([
+            {"ts_code": "000001.SZ", "end_date": "20240331", "revenue": 999.0}
+        ])
+
+        with patch.object(api_module, "_pro_api", mock_pro):
+            result = api_module.search_line_items(
+                "000001.SZ",
+                ["revenue"],
+                "2024-03-31",
+            )
+            assert len(result) == 1
+            assert result[0].ticker == "000001.SZ"
+            assert result[0].revenue == 999.0
+
+    @patch.dict(os.environ, {"TUSHARE_TOKEN": "test-token"}, clear=True)
+    def test_get_insider_trades_empty_dataframe_returns_empty_list(self):
+        """Test that empty stk_holdertrade DataFrame returns empty list."""
+        mock_pro = Mock()
+        mock_pro.stk_holdertrade.return_value = pd.DataFrame()
+
+        with patch.object(api_module, "_pro_api", mock_pro):
+            result = api_module.get_insider_trades("000001.SZ", "2024-01-10")
+            assert result == []
+
+    @patch.dict(os.environ, {"TUSHARE_TOKEN": "test-token"}, clear=True)
+    def test_get_company_news_returns_empty_list(self):
+        """Test that get_company_news always returns empty list."""
+        result = api_module.get_company_news("000001.SZ", "2024-01-10")
+        assert result == []
+
+    @patch.dict(os.environ, {"TUSHARE_TOKEN": "test-token"}, clear=True)
+    def test_to_tushare_date_conversion(self):
+        """Test YYYY-MM-DD to YYYYMMDD conversion."""
+        assert api_module._to_tushare_date("2024-01-15") == "20240115"
+
+    @patch.dict(os.environ, {"TUSHARE_TOKEN": "test-token"}, clear=True)
+    def test_from_tushare_date_conversion(self):
+        """Test YYYYMMDD to YYYY-MM-DD conversion."""
+        assert api_module._from_tushare_date("20240115") == "2024-01-15"
 
 
 if __name__ == "__main__":
-    pytest.main([__file__]) 
+    pytest.main([__file__])

@@ -153,7 +153,7 @@ if not exist "..\.env" (
         echo %WARNING% Please edit ..\.env to add your API keys:
         echo %WARNING%   - OPENAI_API_KEY=your-openai-api-key
         echo %WARNING%   - GROQ_API_KEY=your-groq-api-key
-        echo %WARNING%   - FINANCIAL_DATASETS_API_KEY=your-financial-datasets-api-key
+        echo %WARNING%   - TUSHARE_TOKEN=your-tushare-token
         echo.
     ) else (
         echo %ERROR% No .env or .env.example file found in the root directory.

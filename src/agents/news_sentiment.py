@@ -40,7 +40,7 @@ def news_sentiment_agent(state: AgentState, agent_id: str = "news_sentiment_agen
     data = state.get("data", {})
     end_date = data.get("end_date")
     tickers = data.get("tickers")
-    api_key = get_api_key_from_state(state, "FINANCIAL_DATASETS_API_KEY")
+    api_key = get_api_key_from_state(state, "TUSHARE_TOKEN")
     sentiment_analysis = {}
 
     for ticker in tickers:

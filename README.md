@@ -75,11 +75,13 @@ Open and edit the `.env` file to add your API keys:
 # For running LLMs hosted by openai (gpt-4o, gpt-4o-mini, etc.)
 OPENAI_API_KEY=your-openai-api-key
 
-# For getting financial data to power the hedge fund
-FINANCIAL_DATASETS_API_KEY=your-financial-datasets-api-key
+# For getting A-share financial data via Tushare
+TUSHARE_TOKEN=your-tushare-token
 ```
 
-**Important**: You must set at least one LLM API key (e.g. `OPENAI_API_KEY`, `GROQ_API_KEY`, `ANTHROPIC_API_KEY`, or `DEEPSEEK_API_KEY`) for the hedge fund to work. 
+**Important**: You must set at least one LLM API key (e.g. `OPENAI_API_KEY`, `GROQ_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, or `MOONSHOT_API_KEY`) for the hedge fund to work. You also need a `TUSHARE_TOKEN` for A-share data.
+
+**Note**: This fork only supports A-share stocks (e.g. `000001.SZ`, `600519.SH`). 
 
 ## How to Run
 
@@ -103,24 +105,24 @@ poetry install
 
 #### Run the AI Hedge Fund
 ```bash
-poetry run python src/main.py --ticker AAPL,MSFT,NVDA
+poetry run python src/main.py --tickers 000001.SZ,600519.SH,000858.SZ
 ```
 
 You can also specify a `--ollama` flag to run the AI hedge fund using local LLMs.
 
 ```bash
-poetry run python src/main.py --ticker AAPL,MSFT,NVDA --ollama
+poetry run python src/main.py --tickers 000001.SZ,600519.SH,000858.SZ --ollama
 ```
 
 You can optionally specify the start and end dates to make decisions over a specific time period.
 
 ```bash
-poetry run python src/main.py --ticker AAPL,MSFT,NVDA --start-date 2024-01-01 --end-date 2024-03-01
+poetry run python src/main.py --tickers 000001.SZ,600519.SH,000858.SZ --start-date 2024-01-01 --end-date 2024-03-01
 ```
 
 #### Run the Backtester
 ```bash
-poetry run python src/backtester.py --ticker AAPL,MSFT,NVDA
+poetry run python src/backtester.py --tickers 000001.SZ,600519.SH
 ```
 
 **Example Output:**

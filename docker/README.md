@@ -74,13 +74,13 @@ Open and edit the `.env` file to add your API keys:
 # For running LLMs hosted by openai (gpt-4o, gpt-4o-mini, etc.)
 OPENAI_API_KEY=your-openai-api-key
 
-# For getting financial data to power the hedge fund
-FINANCIAL_DATASETS_API_KEY=your-financial-datasets-api-key
+# For getting A-share financial data via Tushare
+TUSHARE_TOKEN=your-tushare-token
 ```
 
-**Important**: You must set at least one LLM API key (e.g. `OPENAI_API_KEY`, `GROQ_API_KEY`, `ANTHROPIC_API_KEY`, or `DEEPSEEK_API_KEY`) for the hedge fund to work. 
+**Important**: You must set at least one LLM API key (e.g. `OPENAI_API_KEY`, `GROQ_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, or `MOONSHOT_API_KEY`) for the hedge fund to work. You also need a `TUSHARE_TOKEN` for A-share data.
 
-**Financial Data**: Data for AAPL, GOOGL, MSFT, NVDA, and TSLA is free and does not require an API key. For any other ticker, you will need to set the `FINANCIAL_DATASETS_API_KEY` in the .env file.
+**Note**: This fork only supports A-share stocks (e.g. `000001.SZ`, `600519.SH`).
 
 ## How to Run
 
@@ -114,10 +114,10 @@ run.bat build
 cd docker
 
 # On Linux/Mac:
-./run.sh --ticker AAPL,MSFT,NVDA main
+./run.sh --tickers 000001.SZ,600519.SH,000858.SZ main
 
 # On Windows:
-run.bat --ticker AAPL,MSFT,NVDA main
+run.bat --tickers 000001.SZ,600519.SH,000858.SZ main
 ```
 
 You can also specify a `--ollama` flag to run the AI hedge fund using local LLMs.
@@ -125,20 +125,20 @@ You can also specify a `--ollama` flag to run the AI hedge fund using local LLMs
 ```bash
 # With Docker (from docker/ directory):
 # On Linux/Mac:
-./run.sh --ticker AAPL,MSFT,NVDA --ollama main
+./run.sh --tickers 000001.SZ,600519.SH,000858.SZ --ollama main
 
 # On Windows:
-run.bat --ticker AAPL,MSFT,NVDA --ollama main
+run.bat --tickers 000001.SZ,600519.SH,000858.SZ --ollama main
 ```
 
 If you already have an Ollama server running (locally or on your network), point the containers at it instead of starting the bundled instance. You can either pass an explicit base URL or export `OLLAMA_BASE_URL` before running the scripts.
 
 ```bash
 # Linux / macOS
-./run.sh --ticker AAPL,MSFT,NVDA --ollama --ollama-base-url http://localhost:11434 main
+./run.sh --tickers 000001.SZ,600519.SH,000858.SZ --ollama --ollama-base-url http://localhost:11434 main
 
 # Windows
-run.bat --ticker AAPL,MSFT,NVDA --ollama --ollama-base-url http://localhost:11434 main
+run.bat --tickers 000001.SZ,600519.SH,000858.SZ --ollama --ollama-base-url http://localhost:11434 main
 ```
 
 When `OLLAMA_BASE_URL` is provided, the Docker compose services reuse that endpoint and the Ollama container is not started. To launch the embedded Ollama service manually with Docker Compose, add the `embedded-ollama` profile (e.g. `docker compose --profile embedded-ollama up`).
@@ -148,10 +148,10 @@ You can optionally specify the start and end dates to make decisions for a speci
 ```bash
 # With Docker (from docker/ directory):
 # On Linux/Mac:
-./run.sh --ticker AAPL,MSFT,NVDA --start-date 2024-01-01 --end-date 2024-03-01 main
+./run.sh --tickers 000001.SZ,600519.SH,000858.SZ --start-date 2024-01-01 --end-date 2024-03-01 main
 
 # On Windows:
-run.bat --ticker AAPL,MSFT,NVDA --start-date 2024-01-01 --end-date 2024-03-01 main
+run.bat --tickers 000001.SZ,600519.SH,000858.SZ --start-date 2024-01-01 --end-date 2024-03-01 main
 ```
 
 #### Running the Backtester (with Docker)
@@ -160,10 +160,10 @@ run.bat --ticker AAPL,MSFT,NVDA --start-date 2024-01-01 --end-date 2024-03-01 ma
 cd docker
 
 # On Linux/Mac:
-./run.sh --ticker AAPL,MSFT,NVDA backtest
+./run.sh --tickers 000001.SZ,600519.SH,000858.SZ backtest
 
 # On Windows:
-run.bat --ticker AAPL,MSFT,NVDA backtest
+run.bat --tickers 000001.SZ,600519.SH,000858.SZ backtest
 ```
 
 **Example Output:**
@@ -175,20 +175,20 @@ You can optionally specify the start and end dates to backtest over a specific t
 ```bash
 # With Docker (from docker/ directory):
 # On Linux/Mac:
-./run.sh --ticker AAPL,MSFT,NVDA --start-date 2024-01-01 --end-date 2024-03-01 backtest
+./run.sh --tickers 000001.SZ,600519.SH,000858.SZ --start-date 2024-01-01 --end-date 2024-03-01 backtest
 
 # On Windows:
-run.bat --ticker AAPL,MSFT,NVDA --start-date 2024-01-01 --end-date 2024-03-01 backtest
+run.bat --tickers 000001.SZ,600519.SH,000858.SZ --start-date 2024-01-01 --end-date 2024-03-01 backtest
 ```
 
 You can also specify a `--ollama` flag to run the backtester using local LLMs.
 ```bash
 # With Docker (from docker/ directory):
 # On Linux/Mac:
-./run.sh --ticker AAPL,MSFT,NVDA --ollama backtest
+./run.sh --tickers 000001.SZ,600519.SH,000858.SZ --ollama backtest
 
 # On Windows:
-run.bat --ticker AAPL,MSFT,NVDA --ollama backtest
+run.bat --tickers 000001.SZ,600519.SH,000858.SZ --ollama backtest
 ```
 
 ## Contributing

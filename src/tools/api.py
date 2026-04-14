@@ -2,8 +2,6 @@ import datetime
 import logging
 import os
 import pandas as pd
-import requests
-import time
 
 logger = logging.getLogger(__name__)
 
@@ -25,73 +23,124 @@ from src.data.models import (
 # Global cache instance
 _cache = get_cache()
 
+# Tushare Pro API (lazy init)
+_pro_api = None
 
-def _make_api_request(url: str, headers: dict, method: str = "GET", json_data: dict = None, max_retries: int = 3) -> requests.Response:
-    """
-    Make an API request with rate limiting handling and moderate backoff.
-    
-    Args:
-        url: The URL to request
-        headers: Headers to include in the request
-        method: HTTP method (GET or POST)
-        json_data: JSON data for POST requests
-        max_retries: Maximum number of retries (default: 3)
-    
-    Returns:
-        requests.Response: The response object
-    
-    Raises:
-        Exception: If the request fails with a non-429 error
-    """
-    for attempt in range(max_retries + 1):  # +1 for initial attempt
-        if method.upper() == "POST":
-            response = requests.post(url, headers=headers, json=json_data)
-        else:
-            response = requests.get(url, headers=headers)
-        
-        if response.status_code == 429 and attempt < max_retries:
-            # Linear backoff: 60s, 90s, 120s, 150s...
-            delay = 60 + (30 * attempt)
-            print(f"Rate limited (429). Attempt {attempt + 1}/{max_retries + 1}. Waiting {delay}s before retrying...")
-            time.sleep(delay)
-            continue
-        
-        # Return the response (whether success, other errors, or final 429)
-        return response
+
+def _get_pro_api(api_key: str | None = None):
+    """Get or initialize Tushare Pro API."""
+    global _pro_api
+    if _pro_api is None:
+        try:
+            import tushare as ts
+        except ImportError as e:
+            raise ImportError("tushare is required. Install it with: poetry install") from e
+        token = api_key or os.environ.get("TUSHARE_TOKEN")
+        if not token:
+            raise ValueError("TUSHARE_TOKEN is not set. Please set it in your .env file.")
+        _pro_api = ts.pro_api(token)
+    return _pro_api
+
+
+def _to_tushare_date(date_str: str) -> str:
+    """Convert YYYY-MM-DD to YYYYMMDD."""
+    return date_str.replace("-", "")
+
+
+def _from_tushare_date(date_str: str) -> str:
+    """Convert YYYYMMDD to YYYY-MM-DD."""
+    return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+
+
+# Mapping from English line-item names to Tushare (table, field)
+LINE_ITEM_MAPPING = {
+    # Income statement (利润表) - pro.income
+    "revenue": ("income", "revenue"),
+    "total_revenue": ("income", "total_revenue"),
+    "operating_revenue": ("income", "revenue"),
+    "gross_profit": ("income", "int_income"),  # 利息收入，但这里用近似，更好的映射 needed
+    "operating_income": ("income", "oper_profit"),
+    "operating_profit": ("income", "oper_profit"),
+    "ebitda": ("income", "ebitda"),
+    "net_income": ("income", "n_income"),
+    "net_income_attributable": ("income", "n_income_attr_p"),
+    "research_and_development": ("income", "rd_expense"),
+    "interest_expense": ("income", "int_expense"),
+    "income_tax_expense": ("income", "income_tax"),
+    "total_operating_expenses": ("income", "total_cogs"),
+    "operating_expenses": ("income", "oper_expense"),
+    "selling_general_and_administrative": ("income", "admin_expense"),
+    "depreciation_and_amortization": ("income", "depr_fa_coga_dpba"),  # 固定资产折旧、油气资产折耗、生产性生物资产折旧
+    "earnings_per_share": ("income", "eps"),
+    # Balance sheet (资产负债表) - pro.balancesheet
+    "total_assets": ("balancesheet", "total_assets"),
+    "book_value_per_share": ("balancesheet", "bps"),
+    "total_liabilities": ("balancesheet", "total_liab"),
+    "shareholders_equity": ("balancesheet", "total_hldr_eqy_exc_min_int"),
+    "total_equity": ("balancesheet", "total_hldr_eqy_exc_min_int"),
+    "outstanding_shares": ("balancesheet", "total_share"),
+    "total_debt": ("balancesheet", "total_liab"),
+    "cash_and_equivalents": ("balancesheet", "money_cap"),
+    "working_capital": ("balancesheet", "working_capital"),  # 可能需要计算
+    "inventory": ("balancesheet", "inventories"),
+    "accounts_receivable": ("balancesheet", "accounts_receiv"),
+    "property_plant_equipment": ("balancesheet", "fix_assets"),
+    "goodwill": ("balancesheet", "goodwill"),
+    "long_term_debt": ("balancesheet", "lt_borr"),
+    "short_term_debt": ("balancesheet", "st_borr"),
+    # Cash flow (现金流量表) - pro.cashflow
+    "free_cash_flow": ("cashflow", "free_cashflow"),
+    "operating_cash_flow": ("cashflow", "n_cashflow_act"),
+    "capital_expenditure": ("cashflow", "c_paid_invest"),
+    "dividends_and_other_cash_distributions": ("cashflow", "c_paid_fnt_c"),
+    "issuance_or_purchase_of_equity_shares": ("cashflow", "c_paid_fnt_c"),
+    "cash_flow_from_operations": ("cashflow", "n_cashflow_act"),
+    "cash_flow_from_investing": ("cashflow", "n_cashflow_inv_act"),
+    "cash_flow_from_financing": ("cashflow", "n_cash_frd_act"),
+}
+
+
+def _df_to_records(df: pd.DataFrame | None) -> list[dict]:
+    """Convert a DataFrame to a list of dicts, handling None/empty."""
+    if df is None or df.empty:
+        return []
+    return df.to_dict(orient="records")
 
 
 def get_prices(ticker: str, start_date: str, end_date: str, api_key: str = None) -> list[Price]:
-    """Fetch price data from cache or API."""
-    # Create a cache key that includes all parameters to ensure exact matches
+    """Fetch price data from Tushare."""
     cache_key = f"{ticker}_{start_date}_{end_date}"
-    
-    # Check cache first - simple exact match
     if cached_data := _cache.get_prices(cache_key):
         return [Price(**price) for price in cached_data]
 
-    # If not in cache, fetch from API
-    headers = {}
-    financial_api_key = api_key or os.environ.get("FINANCIAL_DATASETS_API_KEY")
-    if financial_api_key:
-        headers["X-API-KEY"] = financial_api_key
-
-    url = f"https://api.financialdatasets.ai/prices/?ticker={ticker}&interval=day&interval_multiplier=1&start_date={start_date}&end_date={end_date}"
-    response = _make_api_request(url, headers)
-    if response.status_code != 200:
-        return []
-
-    # Parse response with Pydantic model
+    pro = _get_pro_api(api_key)
     try:
-        price_response = PriceResponse(**response.json())
-        prices = price_response.prices
+        df = pro.daily(
+            ts_code=ticker,
+            start_date=_to_tushare_date(start_date),
+            end_date=_to_tushare_date(end_date),
+        )
     except Exception as e:
-        logger.warning("Failed to parse price response for %s: %s", ticker, e)
+        logger.warning("Failed to fetch prices for %s: %s", ticker, e)
         return []
 
-    if not prices:
+    records = _df_to_records(df)
+    if not records:
         return []
 
-    # Cache the results using the comprehensive cache key
+    prices = []
+    for r in records:
+        prices.append(
+            Price(
+                open=float(r.get("open", 0)),
+                close=float(r.get("close", 0)),
+                high=float(r.get("high", 0)),
+                low=float(r.get("low", 0)),
+                volume=int(r.get("vol", 0)),
+                time=_from_tushare_date(str(r.get("trade_date", ""))),
+            )
+        )
+
     _cache.set_prices(cache_key, [p.model_dump() for p in prices])
     return prices
 
@@ -103,39 +152,110 @@ def get_financial_metrics(
     limit: int = 10,
     api_key: str = None,
 ) -> list[FinancialMetrics]:
-    """Fetch financial metrics from cache or API."""
-    # Create a cache key that includes all parameters to ensure exact matches
+    """Fetch financial metrics from Tushare (fina_indicator + daily_basic)."""
     cache_key = f"{ticker}_{period}_{end_date}_{limit}"
-    
-    # Check cache first - simple exact match
     if cached_data := _cache.get_financial_metrics(cache_key):
         return [FinancialMetrics(**metric) for metric in cached_data]
 
-    # If not in cache, fetch from API
-    headers = {}
-    financial_api_key = api_key or os.environ.get("FINANCIAL_DATASETS_API_KEY")
-    if financial_api_key:
-        headers["X-API-KEY"] = financial_api_key
+    pro = _get_pro_api(api_key)
+    ts_end = _to_tushare_date(end_date)
 
-    url = f"https://api.financialdatasets.ai/financial-metrics/?ticker={ticker}&report_period_lte={end_date}&limit={limit}&period={period}"
-    response = _make_api_request(url, headers)
-    if response.status_code != 200:
-        return []
-
-    # Parse response with Pydantic model
+    # fina_indicator 提供大部分财务指标
     try:
-        metrics_response = FinancialMetricsResponse(**response.json())
-        financial_metrics = metrics_response.financial_metrics
+        fina_df = pro.fina_indicator(ts_code=ticker, end_date=ts_end, limit=limit)
     except Exception as e:
-        logger.warning("Failed to parse financial metrics response for %s: %s", ticker, e)
+        logger.warning("Failed to fetch fina_indicator for %s: %s", ticker, e)
+        fina_df = pd.DataFrame()
+
+    # daily_basic 提供估值指标
+    try:
+        basic_df = pro.daily_basic(ts_code=ticker, trade_date=ts_end)
+    except Exception as e:
+        logger.warning("Failed to fetch daily_basic for %s: %s", ticker, e)
+        basic_df = pd.DataFrame()
+
+    # 将 daily_basic 按 trade_date 转为字典方便合并
+    basic_map = {}
+    for r in _df_to_records(basic_df):
+        basic_map[str(r.get("trade_date", ""))] = r
+
+    records = _df_to_records(fina_df)
+    if not records:
         return []
 
-    if not financial_metrics:
-        return []
+    metrics = []
+    for r in records:
+        end_dt = str(r.get("end_date", ""))
+        # 找最接近报告期的 daily_basic
+        basic = basic_map.get(end_dt, {})
+        if not basic and basic_map:
+            # 取最近一天的
+            basic = list(basic_map.values())[0]
 
-    # Cache the results as dicts using the comprehensive cache key
-    _cache.set_financial_metrics(cache_key, [m.model_dump() for m in financial_metrics])
-    return financial_metrics
+        # 市值：万元 -> 元
+        total_mv = basic.get("total_mv")
+        market_cap = float(total_mv) * 10000 if total_mv is not None else None
+
+        metrics.append(
+            FinancialMetrics(
+                ticker=ticker,
+                report_period=_from_tushare_date(end_dt) if end_dt else end_date,
+                period=period,
+                currency="CNY",
+                market_cap=market_cap,
+                enterprise_value=None,
+                price_to_earnings_ratio=_to_float(basic.get("pe_ttm")),
+                price_to_book_ratio=_to_float(basic.get("pb")),
+                price_to_sales_ratio=_to_float(basic.get("ps")),
+                enterprise_value_to_ebitda_ratio=None,
+                enterprise_value_to_revenue_ratio=None,
+                free_cash_flow_yield=None,
+                peg_ratio=_to_float(r.get("trady_3")) if "trady_3" in r else None,  # Tushare 无标准 PEG
+                gross_margin=_to_float(r.get("grossprofit_margin")),
+                operating_margin=_to_float(r.get("op_of_ebt")),
+                net_margin=_to_float(r.get("profit_to_gr")),
+                return_on_equity=_to_float(r.get("roe")),
+                return_on_assets=_to_float(r.get("roa")),
+                return_on_invested_capital=_to_float(r.get("roe_yearly")),
+                asset_turnover=_to_float(r.get("assets_turn")),
+                inventory_turnover=_to_float(r.get("inv_turn")),
+                receivables_turnover=_to_float(r.get("ar_turn")),
+                days_sales_outstanding=_to_float(r.get("days_ar_turn")),
+                operating_cycle=_to_float(r.get("op_cycle")),
+                working_capital_turnover=None,
+                current_ratio=_to_float(r.get("current_ratio")),
+                quick_ratio=_to_float(r.get("quick_ratio")),
+                cash_ratio=_to_float(r.get("cash_ratio")),
+                operating_cash_flow_ratio=_to_float(r.get("ocf_to_opincome")),
+                debt_to_equity=_to_float(r.get("debt_to_eqt")),
+                debt_to_assets=_to_float(r.get("debt_to_assets")),
+                interest_coverage=_to_float(r.get("int_to_talcap")),
+                revenue_growth=_to_float(r.get("q_sales_yoy")),
+                earnings_growth=_to_float(r.get("q_profit_yoy")),
+                book_value_growth=None,
+                earnings_per_share_growth=None,
+                free_cash_flow_growth=None,
+                operating_income_growth=_to_float(r.get("q_op_yoy")),
+                ebitda_growth=None,
+                payout_ratio=_to_float(r.get("profit_to_gr")),
+                earnings_per_share=_to_float(r.get("eps")),
+                book_value_per_share=_to_float(r.get("bps")),
+                free_cash_flow_per_share=None,
+            )
+        )
+
+    _cache.set_financial_metrics(cache_key, [m.model_dump() for m in metrics])
+    return metrics[:limit]
+
+
+def _to_float(value) -> float | None:
+    """Safely convert a value to float."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def search_line_items(
@@ -146,38 +266,72 @@ def search_line_items(
     limit: int = 10,
     api_key: str = None,
 ) -> list[LineItem]:
-    """Fetch line items from API."""
-    # If not in cache or insufficient data, fetch from API
-    headers = {}
-    financial_api_key = api_key or os.environ.get("FINANCIAL_DATASETS_API_KEY")
-    if financial_api_key:
-        headers["X-API-KEY"] = financial_api_key
+    """Fetch line items from Tushare (income / balancesheet / cashflow)."""
+    pro = _get_pro_api(api_key)
+    ts_end = _to_tushare_date(end_date)
 
-    url = "https://api.financialdatasets.ai/financials/search/line-items"
+    # 分组
+    table_groups: dict[str, list[tuple[str, str]]] = {"income": [], "balancesheet": [], "cashflow": []}
+    unknown = []
+    for item in line_items:
+        mapping = LINE_ITEM_MAPPING.get(item)
+        if mapping:
+            table_groups[mapping[0]].append((item, mapping[1]))
+        else:
+            unknown.append(item)
 
-    body = {
-        "tickers": [ticker],
-        "line_items": line_items,
-        "end_date": end_date,
-        "period": period,
-        "limit": limit,
-    }
-    response = _make_api_request(url, headers, method="POST", json_data=body)
-    if response.status_code != 200:
-        return []
-    
-    try:
-        data = response.json()
-        response_model = LineItemResponse(**data)
-        search_results = response_model.search_results
-    except Exception as e:
-        logger.warning("Failed to parse line items response for %s: %s", ticker, e)
-        return []
-    if not search_results:
-        return []
+    if unknown:
+        logger.warning("Unknown line items for Tushare mapping: %s", unknown)
 
-    # Cache the results
-    return search_results[:limit]
+    # 按 report_period 合并结果
+    merged: dict[str, dict] = {}
+
+    def _fetch_and_merge(table: str, fields: list[str], tushare_fields: list[str]):
+        if not tushare_fields:
+            return
+        try:
+            if table == "income":
+                df = pro.income(ts_code=ticker, end_date=ts_end, limit=limit, fields=",".join(["ts_code", "end_date"] + tushare_fields))
+            elif table == "balancesheet":
+                df = pro.balancesheet(ts_code=ticker, end_date=ts_end, limit=limit, fields=",".join(["ts_code", "end_date"] + tushare_fields))
+            elif table == "cashflow":
+                df = pro.cashflow(ts_code=ticker, end_date=ts_end, limit=limit, fields=",".join(["ts_code", "end_date"] + tushare_fields))
+            else:
+                return
+        except Exception as e:
+            logger.warning("Failed to fetch %s for %s: %s", table, ticker, e)
+            return
+
+        for r in _df_to_records(df):
+            end_dt = str(r.get("end_date", ""))
+            key = end_dt
+            if key not in merged:
+                merged[key] = {
+                    "ticker": ticker,
+                    "report_period": _from_tushare_date(end_dt) if end_dt else end_date,
+                    "period": period,
+                    "currency": "CNY",
+                }
+            for eng_name, ts_field in fields:
+                merged[key][eng_name] = r.get(ts_field)
+
+    # 去重字段并调用
+    for table in ("income", "balancesheet", "cashflow"):
+        group = table_groups[table]
+        if not group:
+            continue
+        seen = set()
+        unique_fields = []
+        unique_pairs = []
+        for eng, tsf in group:
+            if tsf not in seen:
+                seen.add(tsf)
+                unique_fields.append((eng, tsf))
+                unique_pairs.append(tsf)
+        _fetch_and_merge(table, unique_fields, unique_pairs)
+
+    results = [LineItem(**data) for data in merged.values()]
+    return results[:limit]
 
 
 def get_insider_trades(
@@ -187,63 +341,56 @@ def get_insider_trades(
     limit: int = 1000,
     api_key: str = None,
 ) -> list[InsiderTrade]:
-    """Fetch insider trades from cache or API."""
-    # Create a cache key that includes all parameters to ensure exact matches
+    """Fetch insider trades (shareholder changes) from Tushare."""
     cache_key = f"{ticker}_{start_date or 'none'}_{end_date}_{limit}"
-    
-    # Check cache first - simple exact match
     if cached_data := _cache.get_insider_trades(cache_key):
         return [InsiderTrade(**trade) for trade in cached_data]
 
-    # If not in cache, fetch from API
-    headers = {}
-    financial_api_key = api_key or os.environ.get("FINANCIAL_DATASETS_API_KEY")
-    if financial_api_key:
-        headers["X-API-KEY"] = financial_api_key
-
-    all_trades = []
-    current_end_date = end_date
-
-    while True:
-        url = f"https://api.financialdatasets.ai/insider-trades/?ticker={ticker}&filing_date_lte={current_end_date}"
-        if start_date:
-            url += f"&filing_date_gte={start_date}"
-        url += f"&limit={limit}"
-
-        response = _make_api_request(url, headers)
-        if response.status_code != 200:
-            break
-
-        try:
-            data = response.json()
-            response_model = InsiderTradeResponse(**data)
-            insider_trades = response_model.insider_trades
-        except Exception as e:
-            logger.warning("Failed to parse insider trades response for %s: %s", ticker, e)
-            break
-
-        if not insider_trades:
-            break
-
-        all_trades.extend(insider_trades)
-
-        # Only continue pagination if we have a start_date and got a full page
-        if not start_date or len(insider_trades) < limit:
-            break
-
-        # Update end_date to the oldest filing date from current batch for next iteration
-        current_end_date = min(trade.filing_date for trade in insider_trades).split("T")[0]
-
-        # If we've reached or passed the start_date, we can stop
-        if current_end_date <= start_date:
-            break
-
-    if not all_trades:
+    pro = _get_pro_api(api_key)
+    try:
+        df = pro.stk_holdertrade(
+            ts_code=ticker,
+            start_date=_to_tushare_date(start_date) if start_date else None,
+            end_date=_to_tushare_date(end_date),
+        )
+    except Exception as e:
+        logger.warning("Failed to fetch insider trades for %s: %s", ticker, e)
         return []
 
-    # Cache the results using the comprehensive cache key
-    _cache.set_insider_trades(cache_key, [trade.model_dump() for trade in all_trades])
-    return all_trades
+    records = _df_to_records(df)
+    if not records:
+        return []
+
+    trades = []
+    for r in records:
+        change_vol = _to_float(r.get("change_vol")) or 0.0
+        in_de = r.get("in_de", "")  # 增持/减持
+        if in_de == "减持":
+            change_vol = -abs(change_vol)
+        else:
+            change_vol = abs(change_vol)
+
+        ann_date = str(r.get("ann_date", ""))
+        trades.append(
+            InsiderTrade(
+                ticker=ticker,
+                issuer=r.get("holder_name") or ticker,
+                name=r.get("holder_name"),
+                title=r.get("holder_type"),
+                is_board_director=None,
+                transaction_date=_from_tushare_date(ann_date) if ann_date else None,
+                transaction_shares=change_vol,
+                transaction_price_per_share=_to_float(r.get("avg_price")),
+                transaction_value=change_vol * (_to_float(r.get("avg_price")) or 0.0) if change_vol else None,
+                shares_owned_before_transaction=None,
+                shares_owned_after_transaction=_to_float(r.get("after_share")),
+                security_title=None,
+                filing_date=_from_tushare_date(ann_date) if ann_date else ann_date,
+            )
+        )
+
+    _cache.set_insider_trades(cache_key, [trade.model_dump() for trade in trades])
+    return trades
 
 
 def get_company_news(
@@ -253,63 +400,9 @@ def get_company_news(
     limit: int = 1000,
     api_key: str = None,
 ) -> list[CompanyNews]:
-    """Fetch company news from cache or API."""
-    # Create a cache key that includes all parameters to ensure exact matches
-    cache_key = f"{ticker}_{start_date or 'none'}_{end_date}_{limit}"
-    
-    # Check cache first - simple exact match
-    if cached_data := _cache.get_company_news(cache_key):
-        return [CompanyNews(**news) for news in cached_data]
-
-    # If not in cache, fetch from API
-    headers = {}
-    financial_api_key = api_key or os.environ.get("FINANCIAL_DATASETS_API_KEY")
-    if financial_api_key:
-        headers["X-API-KEY"] = financial_api_key
-
-    all_news = []
-    current_end_date = end_date
-
-    while True:
-        url = f"https://api.financialdatasets.ai/news/?ticker={ticker}&end_date={current_end_date}"
-        if start_date:
-            url += f"&start_date={start_date}"
-        url += f"&limit={limit}"
-
-        response = _make_api_request(url, headers)
-        if response.status_code != 200:
-            break
-
-        try:
-            data = response.json()
-            response_model = CompanyNewsResponse(**data)
-            company_news = response_model.news
-        except Exception as e:
-            logger.warning("Failed to parse company news response for %s: %s", ticker, e)
-            break
-
-        if not company_news:
-            break
-
-        all_news.extend(company_news)
-
-        # Only continue pagination if we have a start_date and got a full page
-        if not start_date or len(company_news) < limit:
-            break
-
-        # Update end_date to the oldest date from current batch for next iteration
-        current_end_date = min(news.date for news in company_news).split("T")[0]
-
-        # If we've reached or passed the start_date, we can stop
-        if current_end_date <= start_date:
-            break
-
-    if not all_news:
-        return []
-
-    # Cache the results using the comprehensive cache key
-    _cache.set_company_news(cache_key, [news.model_dump() for news in all_news])
-    return all_news
+    """Fetch company news. Tushare 暂无按股票代码查新闻的免费接口，暂返回空列表。"""
+    logger.warning("Company news by ticker is not available via Tushare free API. Returning empty list.")
+    return []
 
 
 def get_market_cap(
@@ -317,35 +410,23 @@ def get_market_cap(
     end_date: str,
     api_key: str = None,
 ) -> float | None:
-    """Fetch market cap from the API."""
-    # Check if end_date is today
-    if end_date == datetime.datetime.now().strftime("%Y-%m-%d"):
-        # Get the market cap from company facts API
-        headers = {}
-        financial_api_key = api_key or os.environ.get("FINANCIAL_DATASETS_API_KEY")
-        if financial_api_key:
-            headers["X-API-KEY"] = financial_api_key
-
-        url = f"https://api.financialdatasets.ai/company/facts/?ticker={ticker}"
-        response = _make_api_request(url, headers)
-        if response.status_code != 200:
-            print(f"Error fetching company facts: {ticker} - {response.status_code}")
-            return None
-
-        data = response.json()
-        response_model = CompanyFactsResponse(**data)
-        return response_model.company_facts.market_cap
-
-    financial_metrics = get_financial_metrics(ticker, end_date, api_key=api_key)
-    if not financial_metrics:
+    """Fetch market cap from Tushare (daily_basic.total_mv, 万元 -> 元)."""
+    pro = _get_pro_api(api_key)
+    ts_end = _to_tushare_date(end_date)
+    try:
+        df = pro.daily_basic(ts_code=ticker, trade_date=ts_end)
+    except Exception as e:
+        logger.warning("Failed to fetch market cap for %s: %s", ticker, e)
         return None
 
-    market_cap = financial_metrics[0].market_cap
-
-    if not market_cap:
+    records = _df_to_records(df)
+    if not records:
         return None
 
-    return market_cap
+    total_mv = records[0].get("total_mv")
+    if total_mv is None:
+        return None
+    return float(total_mv) * 10000
 
 
 def prices_to_df(prices: list[Price]) -> pd.DataFrame:
@@ -360,7 +441,6 @@ def prices_to_df(prices: list[Price]) -> pd.DataFrame:
     return df
 
 
-# Update the get_price_data function to use the new functions
 def get_price_data(ticker: str, start_date: str, end_date: str, api_key: str = None) -> pd.DataFrame:
     prices = get_prices(ticker, start_date, end_date, api_key=api_key)
     return prices_to_df(prices)

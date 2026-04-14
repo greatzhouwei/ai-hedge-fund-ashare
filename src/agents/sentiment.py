@@ -14,7 +14,7 @@ def sentiment_analyst_agent(state: AgentState, agent_id: str = "sentiment_analys
     data = state.get("data", {})
     end_date = data.get("end_date")
     tickers = data.get("tickers")
-    api_key = get_api_key_from_state(state, "FINANCIAL_DATASETS_API_KEY")
+    api_key = get_api_key_from_state(state, "TUSHARE_TOKEN")
     # Initialize sentiment analysis for each ticker
     sentiment_analysis = {}
 
