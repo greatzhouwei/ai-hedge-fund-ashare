@@ -186,9 +186,8 @@ def analyze_financial_strength(financial_line_items: list) -> dict:
     # 3. Dividend track record
     div_periods = [item.dividends_and_other_cash_distributions for item in financial_line_items if item.dividends_and_other_cash_distributions is not None]
     if div_periods:
-        # In many data feeds, dividend outflow is shown as a negative number
-        # (money going out to shareholders). We'll consider any negative as 'paid a dividend'.
-        div_paid_years = sum(1 for d in div_periods if d < 0)
+        # Tushare dividend interface returns positive cash_div values for paid dividends.
+        div_paid_years = sum(1 for d in div_periods if d > 0)
         if div_paid_years > 0:
             # e.g. if at least half the periods had dividends
             if div_paid_years >= (len(div_periods) // 2 + 1):

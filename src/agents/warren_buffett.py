@@ -44,7 +44,6 @@ def warren_buffett_agent(state: AgentState, agent_id: str = "warren_buffett_agen
                 "shareholders_equity",
                 "dividends_and_other_cash_distributions",
                 "issuance_or_purchase_of_equity_shares",
-                "gross_profit",
                 "revenue",
                 "free_cash_flow",
             ],
@@ -364,7 +363,7 @@ def analyze_management_quality(financial_line_items: list) -> dict[str, any]:
 
     # Check for any dividends
     if hasattr(latest,
-               "dividends_and_other_cash_distributions") and latest.dividends_and_other_cash_distributions and latest.dividends_and_other_cash_distributions < 0:
+               "dividends_and_other_cash_distributions") and latest.dividends_and_other_cash_distributions and latest.dividends_and_other_cash_distributions > 0:
         mgmt_score += 1
         reasoning.append("Company has a track record of paying dividends")
     else:

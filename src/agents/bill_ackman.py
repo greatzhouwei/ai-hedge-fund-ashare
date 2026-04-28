@@ -260,7 +260,7 @@ def analyze_financial_discipline(metrics: list, financial_line_items: list) -> d
         if item.dividends_and_other_cash_distributions is not None
     ]
     if dividends_list:
-        paying_dividends_count = sum(1 for d in dividends_list if d < 0)
+        paying_dividends_count = sum(1 for d in dividends_list if d > 0)
         if paying_dividends_count >= (len(dividends_list) // 2 + 1):
             score += 1
             details.append("Company has a history of returning capital to shareholders (dividends).")

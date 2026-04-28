@@ -242,18 +242,27 @@ def calculate_momentum_signals(prices_df):
     """
     Multi-factor momentum strategy
     """
-    # Price momentum
-    returns = prices_df["close"].pct_change()
-    mom_1m = returns.rolling(21).sum()
-    mom_3m = returns.rolling(63).sum()
-    mom_6m = returns.rolling(126).sum()
+    close = prices_df["close"]
+    vol = prices_df["volume"]
+    n = len(close)
+    idx = prices_df.index
 
-    # Volume momentum
-    volume_ma = prices_df["volume"].rolling(21).mean()
-    volume_momentum = prices_df["volume"] / volume_ma
+    # Price momentum: total return over the period (compound, not summed)
+    mom_1m_val = close.iloc[-1] / close.iloc[-22] - 1 if n >= 22 else np.nan
+    mom_3m_val = close.iloc[-1] / close.iloc[-66] - 1 if n >= 66 else np.nan
+    mom_6m_val = close.iloc[-1] / close.iloc[-132] - 1 if n >= 132 else np.nan
 
-    # Relative strength
-    # (would compare to market/sector in real implementation)
+    # Keep as Series for downstream compatibility
+    mom_1m = pd.Series([np.nan] * (n - 1) + [mom_1m_val], index=idx)
+    mom_3m = pd.Series([np.nan] * (n - 1) + [mom_3m_val], index=idx)
+    mom_6m = pd.Series([np.nan] * (n - 1) + [mom_6m_val], index=idx)
+
+    # Volume momentum: 20-day avg volume / 60-day avg volume
+    vol_20_mean = vol.iloc[-20:].mean() if n >= 20 else np.nan
+    vol_60_mean = vol.iloc[-60:].mean() if n >= 60 else np.nan
+    volume_momentum_val = vol_20_mean / vol_60_mean if vol_60_mean and vol_60_mean > 0 else np.nan
+
+    volume_momentum = pd.Series([np.nan] * (n - 1) + [volume_momentum_val], index=idx)
 
     # Calculate momentum score
     momentum_score = (0.4 * mom_1m + 0.3 * mom_3m + 0.3 * mom_6m).iloc[-1]
@@ -418,11 +427,13 @@ def normalize_pandas(obj):
 
 
 def calculate_rsi(prices_df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Calculate RSI using Wilder's Smoothing (matches TA-Lib)."""
     delta = prices_df["close"].diff()
     gain = (delta.where(delta > 0, 0)).fillna(0)
     loss = (-delta.where(delta < 0, 0)).fillna(0)
-    avg_gain = gain.rolling(window=period).mean()
-    avg_loss = loss.rolling(window=period).mean()
+    # Use Wilder's smoothing (alpha=1/period) to match TA-Lib
+    avg_gain = gain.ewm(alpha=1.0 / period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1.0 / period, adjust=False).mean()
     rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
     return rsi
@@ -474,11 +485,18 @@ def calculate_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     df["plus_dm"] = np.where((df["up_move"] > df["down_move"]) & (df["up_move"] > 0), df["up_move"], 0)
     df["minus_dm"] = np.where((df["down_move"] > df["up_move"]) & (df["down_move"] > 0), df["down_move"], 0)
 
-    # Calculate ADX
-    df["+di"] = 100 * (df["plus_dm"].ewm(span=period).mean() / df["tr"].ewm(span=period).mean())
-    df["-di"] = 100 * (df["minus_dm"].ewm(span=period).mean() / df["tr"].ewm(span=period).mean())
+    # Calculate ADX using Wilder's Smoothing (alpha=1/period) to match TA-Lib
+    wilder_alpha = 1.0 / period
+    df["+di"] = 100 * (
+        df["plus_dm"].ewm(alpha=wilder_alpha, adjust=False).mean()
+        / df["tr"].ewm(alpha=wilder_alpha, adjust=False).mean()
+    )
+    df["-di"] = 100 * (
+        df["minus_dm"].ewm(alpha=wilder_alpha, adjust=False).mean()
+        / df["tr"].ewm(alpha=wilder_alpha, adjust=False).mean()
+    )
     df["dx"] = 100 * abs(df["+di"] - df["-di"]) / (df["+di"] + df["-di"])
-    df["adx"] = df["dx"].ewm(span=period).mean()
+    df["adx"] = df["dx"].ewm(alpha=wilder_alpha, adjust=False).mean()
 
     return df[["adx", "+di", "-di"]]
 

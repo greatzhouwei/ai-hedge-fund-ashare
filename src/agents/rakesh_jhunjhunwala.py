@@ -395,7 +395,7 @@ def analyze_cash_flow(financial_line_items: list) -> dict[str, any]:
 
     # Dividend analysis
     if getattr(latest, "dividends_and_other_cash_distributions", None) and latest.dividends_and_other_cash_distributions:
-        if latest.dividends_and_other_cash_distributions < 0:  # Negative indicates cash outflow for dividends
+        if latest.dividends_and_other_cash_distributions > 0:  # Positive indicates cash outflow for dividends in Tushare
             score += 1
             reasoning.append("Company pays dividends to shareholders")
         else:

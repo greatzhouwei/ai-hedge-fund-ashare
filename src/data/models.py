@@ -88,6 +88,7 @@ class LineItem(BaseModel):
     free_cash_flow: float | None = None
     operating_margin: float | None = None
     operating_income: float | None = None
+    ebit: float | None = None
     dividends_and_other_cash_distributions: float | None = None
     debt_to_equity: float | None = None
     total_liabilities: float | None = None

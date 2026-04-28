@@ -58,20 +58,20 @@ LINE_ITEM_MAPPING = {
     "revenue": ("income", "revenue"),
     "total_revenue": ("income", "total_revenue"),
     "operating_revenue": ("income", "revenue"),
-    "gross_profit": ("income", "int_income"),  # 利息收入，但这里用近似，更好的映射 needed
-    "operating_income": ("income", "oper_profit"),
-    "operating_profit": ("income", "oper_profit"),
+    "operating_income": ("income", "operate_profit"),
+    "operating_profit": ("income", "operate_profit"),
     "ebitda": ("income", "ebitda"),
     "net_income": ("income", "n_income"),
     "net_income_attributable": ("income", "n_income_attr_p"),
-    "research_and_development": ("income", "rd_expense"),
-    "interest_expense": ("income", "int_expense"),
+    "research_and_development": ("income", "rd_exp"),
+    "interest_expense": ("income", "int_exp"),
     "income_tax_expense": ("income", "income_tax"),
     "total_operating_expenses": ("income", "total_cogs"),
-    "operating_expenses": ("income", "oper_expense"),
-    "selling_general_and_administrative": ("income", "admin_expense"),
+    "operating_expense": ("income", "oper_exp"),
+    "operating_expenses": ("income", "oper_exp"),
+    "selling_general_and_administrative": ("income", "admin_exp"),
     "depreciation_and_amortization": ("income", "depr_fa_coga_dpba"),  # 固定资产折旧、油气资产折耗、生产性生物资产折旧
-    "earnings_per_share": ("income", "eps"),
+    "earnings_per_share": ("income", "basic_eps"),
     # Balance sheet (资产负债表) - pro.balancesheet
     "total_assets": ("balancesheet", "total_assets"),
     "book_value_per_share": ("balancesheet", "bps"),
@@ -81,7 +81,8 @@ LINE_ITEM_MAPPING = {
     "outstanding_shares": ("balancesheet", "total_share"),
     "total_debt": ("balancesheet", "total_liab"),
     "cash_and_equivalents": ("balancesheet", "money_cap"),
-    "working_capital": ("balancesheet", "working_capital"),  # 可能需要计算
+    "current_assets": ("balancesheet", "total_cur_assets"),
+    "current_liabilities": ("balancesheet", "total_cur_liab"),
     "inventory": ("balancesheet", "inventories"),
     "accounts_receivable": ("balancesheet", "accounts_receiv"),
     "property_plant_equipment": ("balancesheet", "fix_assets"),
@@ -91,9 +92,8 @@ LINE_ITEM_MAPPING = {
     # Cash flow (现金流量表) - pro.cashflow
     "free_cash_flow": ("cashflow", "free_cashflow"),
     "operating_cash_flow": ("cashflow", "n_cashflow_act"),
-    "capital_expenditure": ("cashflow", "c_paid_invest"),
-    "dividends_and_other_cash_distributions": ("cashflow", "c_paid_fnt_c"),
-    "issuance_or_purchase_of_equity_shares": ("cashflow", "c_paid_fnt_c"),
+    "capital_expenditure": ("cashflow", "c_pay_acq_const_fiolta"),
+    "issuance_or_purchase_of_equity_shares": ("cashflow", "c_recp_cap_contrib"),
     "cash_flow_from_operations": ("cashflow", "n_cashflow_act"),
     "cash_flow_from_investing": ("cashflow", "n_cashflow_inv_act"),
     "cash_flow_from_financing": ("cashflow", "n_cash_frd_act"),
@@ -211,12 +211,12 @@ def get_financial_metrics(
                 enterprise_value_to_revenue_ratio=None,
                 free_cash_flow_yield=None,
                 peg_ratio=_to_float(r.get("trady_3")) if "trady_3" in r else None,  # Tushare 无标准 PEG
-                gross_margin=_to_float(r.get("grossprofit_margin")),
-                operating_margin=_to_float(r.get("op_of_ebt")),
-                net_margin=_to_float(r.get("profit_to_gr")),
-                return_on_equity=_to_float(r.get("roe")),
-                return_on_assets=_to_float(r.get("roa")),
-                return_on_invested_capital=_to_float(r.get("roe_yearly")),
+                gross_margin=_to_pct(r.get("grossprofit_margin")),
+                operating_margin=_to_pct(r.get("op_of_gr")),
+                net_margin=_to_pct(r.get("profit_to_gr")),
+                return_on_equity=_to_pct(r.get("roe")),
+                return_on_assets=_to_pct(r.get("roa")),
+                return_on_invested_capital=_to_pct(r.get("roe_yearly")),
                 asset_turnover=_to_float(r.get("assets_turn")),
                 inventory_turnover=_to_float(r.get("inv_turn")),
                 receivables_turnover=_to_float(r.get("ar_turn")),
@@ -226,23 +226,30 @@ def get_financial_metrics(
                 current_ratio=_to_float(r.get("current_ratio")),
                 quick_ratio=_to_float(r.get("quick_ratio")),
                 cash_ratio=_to_float(r.get("cash_ratio")),
-                operating_cash_flow_ratio=_to_float(r.get("ocf_to_opincome")),
+                operating_cash_flow_ratio=_to_pct(r.get("q_ocf_to_sales")),
                 debt_to_equity=_to_float(r.get("debt_to_eqt")),
-                debt_to_assets=_to_float(r.get("debt_to_assets")),
+                debt_to_assets=_to_pct(r.get("debt_to_assets")),
                 interest_coverage=_to_float(r.get("int_to_talcap")),
-                revenue_growth=_to_float(r.get("q_sales_yoy")),
-                earnings_growth=_to_float(r.get("q_profit_yoy")),
-                book_value_growth=None,
+                revenue_growth=_to_pct(r.get("q_sales_yoy")),
+                earnings_growth=_to_pct(r.get("netprofit_yoy")),
+                book_value_growth=None,  # 在下面通过相邻期 bps 计算
                 earnings_per_share_growth=None,
                 free_cash_flow_growth=None,
-                operating_income_growth=_to_float(r.get("q_op_yoy")),
+                operating_income_growth=_to_pct(r.get("q_op_yoy")),
                 ebitda_growth=None,
-                payout_ratio=_to_float(r.get("profit_to_gr")),
+                payout_ratio=_to_pct(r.get("profit_to_gr")),
                 earnings_per_share=_to_float(r.get("eps")),
                 book_value_per_share=_to_float(r.get("bps")),
-                free_cash_flow_per_share=None,
+                free_cash_flow_per_share=_to_float(r.get("fcff_ps")),
             )
         )
+
+    # 通过相邻期 bps 计算 book_value_growth
+    for i in range(len(metrics) - 1):
+        current_bps = metrics[i].book_value_per_share
+        prev_bps = metrics[i + 1].book_value_per_share
+        if current_bps is not None and prev_bps is not None and prev_bps != 0:
+            metrics[i].book_value_growth = (current_bps - prev_bps) / abs(prev_bps)
 
     _cache.set_financial_metrics(cache_key, [m.model_dump() for m in metrics])
     return metrics[:limit]
@@ -256,6 +263,14 @@ def _to_float(value) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _to_pct(value) -> float | None:
+    """Convert a percentage value (e.g., 15.5 for 15.5%) to decimal (0.155)."""
+    f = _to_float(value)
+    if f is None:
+        return None
+    return f / 100
 
 
 def search_line_items(
@@ -273,7 +288,20 @@ def search_line_items(
     # 分组
     table_groups: dict[str, list[tuple[str, str]]] = {"income": [], "balancesheet": [], "cashflow": []}
     unknown = []
-    for item in line_items:
+
+    # working_capital 不是 Tushare 的直接字段，需要计算
+    resolved_items = list(line_items)
+    needs_working_capital = "working_capital" in resolved_items
+    if needs_working_capital:
+        resolved_items = [item for item in resolved_items if item != "working_capital"]
+        resolved_items.extend(["current_assets", "current_liabilities"])
+
+    # dividends_and_other_cash_distributions 使用 dividend 接口而非 cashflow
+    needs_dividends = "dividends_and_other_cash_distributions" in resolved_items
+    if needs_dividends:
+        resolved_items = [item for item in resolved_items if item != "dividends_and_other_cash_distributions"]
+
+    for item in resolved_items:
         mapping = LINE_ITEM_MAPPING.get(item)
         if mapping:
             table_groups[mapping[0]].append((item, mapping[1]))
@@ -330,6 +358,53 @@ def search_line_items(
                 unique_pairs.append(tsf)
         _fetch_and_merge(table, unique_fields, unique_pairs)
 
+    # 计算 working_capital（流动资产 - 流动负债）
+    if needs_working_capital:
+        for data in merged.values():
+            ca = data.get("current_assets")
+            cl = data.get("current_liabilities")
+            if ca is not None and cl is not None:
+                data["working_capital"] = ca - cl
+
+    # 使用 dividend 接口获取分红数据（总分红额 = cash_div * base_share * 10000）
+    if needs_dividends:
+        try:
+            div_df = pro.dividend(ts_code=ticker)
+        except Exception as e:
+            logger.warning("Failed to fetch dividend for %s: %s", ticker, e)
+            div_df = pd.DataFrame()
+
+        div_by_year: dict[str, float] = {}
+        for r in _df_to_records(div_df):
+            year = str(r.get("end_date", ""))
+            if not year:
+                continue
+            # 只统计已实施的分红
+            if r.get("div_proc") != "实施":
+                continue
+            cash_div = _to_float(r.get("cash_div")) or 0.0
+            base_share = _to_float(r.get("base_share"))
+            if base_share is not None and base_share > 0:
+                total_div = cash_div * base_share * 10000
+            else:
+                # 缺少股本时退回到每股分红作为存在性判断
+                total_div = cash_div
+            div_by_year[year] = div_by_year.get(year, 0.0) + total_div
+
+        if merged:
+            for key, data in merged.items():
+                data["dividends_and_other_cash_distributions"] = div_by_year.get(key)
+        else:
+            # 仅请求 dividends 时，按年份生成独立条目
+            for year in sorted(div_by_year.keys(), reverse=True)[:limit]:
+                merged[year] = {
+                    "ticker": ticker,
+                    "report_period": _from_tushare_date(year) if year else end_date,
+                    "period": period,
+                    "currency": "CNY",
+                    "dividends_and_other_cash_distributions": div_by_year[year],
+                }
+
     results = [LineItem(**data) for data in merged.values()]
     return results[:limit]
 
@@ -364,11 +439,13 @@ def get_insider_trades(
     trades = []
     for r in records:
         change_vol = _to_float(r.get("change_vol")) or 0.0
-        in_de = r.get("in_de", "")  # 增持/减持
-        if in_de == "减持":
+        in_de = r.get("in_de", "")  # IN=增持, DE=减持
+        if in_de == "DE":
             change_vol = -abs(change_vol)
-        else:
+        elif in_de == "IN":
             change_vol = abs(change_vol)
+        else:
+            change_vol = 0.0
 
         ann_date = str(r.get("ann_date", ""))
         trades.append(
@@ -400,9 +477,73 @@ def get_company_news(
     limit: int = 1000,
     api_key: str = None,
 ) -> list[CompanyNews]:
-    """Fetch company news. Tushare 暂无按股票代码查新闻的免费接口，暂返回空列表。"""
-    logger.warning("Company news by ticker is not available via Tushare free API. Returning empty list.")
-    return []
+    """Fetch company news via AkShare (Eastmoney). Falls back to empty list on failure."""
+    try:
+        import akshare as ak
+    except ImportError:
+        logger.warning("akshare is not installed. Install it with: pip install akshare")
+        return []
+
+    code = ticker.split(".")[0]
+    try:
+        df = ak.stock_news_em(symbol=code)
+    except Exception as e:
+        logger.warning("Failed to fetch news for %s via akshare: %s", ticker, e)
+        return []
+
+    if df is None or df.empty:
+        return []
+
+    # Normalize column names (akshare may return Chinese or English column names)
+    col_map = {}
+    for col in df.columns:
+        lower = str(col).lower()
+        if "title" in lower or "标题" in lower:
+            col_map["title"] = col
+        elif "time" in lower or "date" in lower or "时间" in lower or "发布" in lower:
+            col_map["date"] = col
+        elif "source" in lower or "来源" in lower:
+            col_map["source"] = col
+        elif "url" in lower or "链接" in lower or "href" in lower:
+            col_map["url"] = col
+        elif "content" in lower or "摘要" in lower or "内容" in lower:
+            col_map["content"] = col
+
+    news_items = []
+    for _, row in df.head(limit).iterrows():
+        title = str(row.get(col_map.get("title", "title"), "")).strip()
+        if not title:
+            continue
+
+        date_val = row.get(col_map.get("date", "pub_time"), "")
+        if pd.isna(date_val):
+            date_str = ""
+        else:
+            date_str = str(date_val).strip()
+
+        source_val = row.get(col_map.get("source", "source"), "")
+        source_str = str(source_val).strip() if not pd.isna(source_val) else ""
+
+        url_val = row.get(col_map.get("url", "url"), "")
+        url_str = str(url_val).strip() if not pd.isna(url_val) else ""
+
+        # content 字段用于 LLM 分析（可选）
+        content_val = row.get(col_map.get("content", "content"), "")
+        content_str = str(content_val).strip() if not pd.isna(content_val) else ""
+
+        news_items.append(
+            CompanyNews(
+                ticker=ticker,
+                title=title,
+                author=None,
+                source=source_str or "东方财富",
+                date=date_str,
+                url=url_str,
+            )
+        )
+
+    logger.info("Fetched %d news items for %s via akshare", len(news_items), ticker)
+    return news_items
 
 
 def get_market_cap(
