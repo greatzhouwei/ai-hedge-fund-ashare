@@ -6,6 +6,12 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 from src.data.cache import get_cache
+
+# 绕过系统代理，直接访问 Tushare（国内服务无需代理）
+for _proxy_key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+    if _proxy_key in os.environ:
+        del os.environ[_proxy_key]
+        logger.info("Removed %s for direct Tushare access", _proxy_key)
 from src.data.models import (
     CompanyNews,
     CompanyNewsResponse,
@@ -35,6 +41,10 @@ def _get_pro_api(api_key: str | None = None):
             import tushare as ts
         except ImportError as e:
             raise ImportError("tushare is required. Install it with: poetry install") from e
+        # 清除代理环境变量，Tushare 直接访问无需代理
+        for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"]:
+            os.environ.pop(key, None)
+        os.environ["NO_PROXY"] = "api.waditu.com"
         token = api_key or os.environ.get("TUSHARE_TOKEN")
         if not token:
             raise ValueError("TUSHARE_TOKEN is not set. Please set it in your .env file.")
@@ -70,7 +80,7 @@ LINE_ITEM_MAPPING = {
     "operating_expense": ("income", "oper_exp"),
     "operating_expenses": ("income", "oper_exp"),
     "selling_general_and_administrative": ("income", "admin_exp"),
-    "depreciation_and_amortization": ("income", "depr_fa_coga_dpba"),  # 固定资产折旧、油气资产折耗、生产性生物资产折旧
+    "depreciation_and_amortization": ("cashflow", "depr_fa_coga_dpba"),  # 固定资产折旧、油气资产折耗、生产性生物资产折旧
     "earnings_per_share": ("income", "basic_eps"),
     # Balance sheet (资产负债表) - pro.balancesheet
     "total_assets": ("balancesheet", "total_assets"),
@@ -167,17 +177,34 @@ def get_financial_metrics(
         logger.warning("Failed to fetch fina_indicator for %s: %s", ticker, e)
         fina_df = pd.DataFrame()
 
-    # daily_basic 提供估值指标
+    # daily_basic 提供估值指标（trade_date 必须是交易日）
+    # 先用 trade_cal 找到最近交易日，避免非交易日返回空
+    # 往前查 60 天，确保长假期间也能覆盖到真实最近交易日
+    basic_df = pd.DataFrame()
     try:
-        basic_df = pro.daily_basic(ts_code=ticker, trade_date=ts_end)
+        cal_start = (datetime.datetime.strptime(ts_end, "%Y%m%d") - datetime.timedelta(days=60)).strftime("%Y%m%d")
+        cal_df = pro.trade_cal(start_date=cal_start, end_date=ts_end, is_open="1")
+        if cal_df is not None and not cal_df.empty:
+            latest_trade_date = str(cal_df.iloc[0]["cal_date"])
+            basic_df = pro.daily_basic(ts_code=ticker, trade_date=latest_trade_date)
     except Exception as e:
         logger.warning("Failed to fetch daily_basic for %s: %s", ticker, e)
-        basic_df = pd.DataFrame()
 
     # 将 daily_basic 按 trade_date 转为字典方便合并
     basic_map = {}
     for r in _df_to_records(basic_df):
         basic_map[str(r.get("trade_date", ""))] = r
+
+    # 获取 balancesheet 数据（用于计算 enterprise_value）
+    try:
+        bs_df = pro.balancesheet(ts_code=ticker, end_date=ts_end, limit=limit, fields="ts_code,end_date,total_liab,money_cap,total_share")
+    except Exception as e:
+        logger.warning("Failed to fetch balancesheet for %s: %s", ticker, e)
+        bs_df = pd.DataFrame()
+
+    bs_map = {}
+    for r in _df_to_records(bs_df):
+        bs_map[str(r.get("end_date", ""))] = r
 
     records = _df_to_records(fina_df)
     if not records:
@@ -196,6 +223,46 @@ def get_financial_metrics(
         total_mv = basic.get("total_mv")
         market_cap = float(total_mv) * 10000 if total_mv is not None else None
 
+        # 手动计算 PEG = PE_TTM / 净利润同比增长率
+        pe_ttm = _to_float(basic.get("pe_ttm"))
+        netprofit_yoy = _to_float(r.get("netprofit_yoy"))
+        if pe_ttm is not None and netprofit_yoy is not None and netprofit_yoy > 0:
+            peg = pe_ttm / netprofit_yoy
+        else:
+            peg = None
+
+        # 从 balancesheet 获取数据计算 enterprise_value
+        bs = bs_map.get(end_dt, {})
+        if not bs and bs_map:
+            # 取最近一期（balancesheet 日期 <= fina_indicator 日期）
+            valid_dates = [d for d in bs_map.keys() if d <= end_dt]
+            if valid_dates:
+                bs = bs_map[max(valid_dates)]
+        total_liab = _to_float(bs.get("total_liab"))
+        money_cap = _to_float(bs.get("money_cap"))
+        outstanding_shares = _to_float(bs.get("total_share"))
+
+        # 计算 enterprise_value = market_cap + total_debt - cash
+        # balancesheet 数据单位为元，无需转换
+        ev = None
+        if market_cap is not None and total_liab is not None:
+            cash = money_cap if money_cap is not None else 0
+            ev = market_cap + total_liab - cash
+
+        # 从 fina_indicator 获取 ebitda，计算 EV/EBITDA
+        ebitda_val = _to_float(r.get("ebitda"))
+
+        ev_to_ebitda = None
+        if ev is not None and ebitda_val is not None and ebitda_val > 0:
+            ev_to_ebitda = ev / ebitda_val
+
+        # 计算 free_cash_flow_yield = FCF / market_cap
+        fcff_ps = _to_float(r.get("fcff_ps"))
+        fcf_yield = None
+        if fcff_ps is not None and outstanding_shares is not None and market_cap is not None and market_cap > 0:
+            fcf = fcff_ps * outstanding_shares
+            fcf_yield = fcf / market_cap
+
         metrics.append(
             FinancialMetrics(
                 ticker=ticker,
@@ -203,14 +270,14 @@ def get_financial_metrics(
                 period=period,
                 currency="CNY",
                 market_cap=market_cap,
-                enterprise_value=None,
-                price_to_earnings_ratio=_to_float(basic.get("pe_ttm")),
+                enterprise_value=ev,
+                price_to_earnings_ratio=pe_ttm,
                 price_to_book_ratio=_to_float(basic.get("pb")),
-                price_to_sales_ratio=_to_float(basic.get("ps")),
-                enterprise_value_to_ebitda_ratio=None,
+                price_to_sales_ratio=_to_float(basic.get("ps_ttm")),
+                enterprise_value_to_ebitda_ratio=ev_to_ebitda,
                 enterprise_value_to_revenue_ratio=None,
-                free_cash_flow_yield=None,
-                peg_ratio=_to_float(r.get("trady_3")) if "trady_3" in r else None,  # Tushare 无标准 PEG
+                free_cash_flow_yield=fcf_yield,
+                peg_ratio=peg,
                 gross_margin=_to_pct(r.get("grossprofit_margin")),
                 operating_margin=_to_pct(r.get("op_of_gr")),
                 net_margin=_to_pct(r.get("profit_to_gr")),
@@ -232,19 +299,21 @@ def get_financial_metrics(
                 interest_coverage=_to_float(r.get("int_to_talcap")),
                 revenue_growth=_to_pct(r.get("q_sales_yoy")),
                 earnings_growth=_to_pct(r.get("netprofit_yoy")),
+                # BPS 是时点值（资产负债表），相邻期环比有意义
                 book_value_growth=None,  # 在下面通过相邻期 bps 计算
-                earnings_per_share_growth=None,
-                free_cash_flow_growth=None,
+                # EPS / FCF / EBITDA 是累计值，必须用同口径同比（yoy），不能用环比
+                earnings_per_share_growth=_to_pct(r.get("basic_eps_yoy")),
+                free_cash_flow_growth=_to_pct(r.get("ocf_yoy")),
                 operating_income_growth=_to_pct(r.get("q_op_yoy")),
-                ebitda_growth=None,
-                payout_ratio=_to_pct(r.get("profit_to_gr")),
+                ebitda_growth=_to_pct(r.get("netprofit_yoy")),  # 无直接 ebitda_yoy，用净利润同比近似
+                payout_ratio=None,  # Tushare 无标准分红率字段
                 earnings_per_share=_to_float(r.get("eps")),
                 book_value_per_share=_to_float(r.get("bps")),
-                free_cash_flow_per_share=_to_float(r.get("fcff_ps")),
+                free_cash_flow_per_share=fcff_ps,
             )
         )
 
-    # 通过相邻期 bps 计算 book_value_growth
+    # 仅 book_value_growth 保留相邻期环比（BPS 是资产负债表时点值，口径一致）
     for i in range(len(metrics) - 1):
         current_bps = metrics[i].book_value_per_share
         prev_bps = metrics[i + 1].book_value_per_share

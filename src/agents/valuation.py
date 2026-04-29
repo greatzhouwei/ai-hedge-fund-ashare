@@ -54,12 +54,7 @@ def valuation_analyst_agent(state: AgentState, agent_id: str = "valuation_analys
                 "capital_expenditure",
                 "working_capital",
                 "total_debt",
-                "cash_and_equivalents", 
-                "interest_expense",
-                "revenue",
-                "operating_income",
-                "ebit",
-                "ebitda"
+                "cash_and_equivalents",
             ],
             end_date=end_date,
             period="ttm",
@@ -234,8 +229,15 @@ def calculate_owner_earnings_value(
     num_years: int = 5,
 ) -> float:
     """Buffett owner‑earnings valuation with margin‑of‑safety."""
-    if not all(isinstance(x, (int, float)) for x in [net_income, depreciation, capex, working_capital_change]):
+    import math
+
+    if net_income is None or not isinstance(net_income, (int, float)) or math.isnan(net_income):
         return 0
+
+    # Allow missing depreciation/capex/wc_change by defaulting to 0 (conservative)
+    depreciation = depreciation if isinstance(depreciation, (int, float)) and not math.isnan(depreciation) else 0
+    capex = capex if isinstance(capex, (int, float)) and not math.isnan(capex) else 0
+    working_capital_change = working_capital_change if isinstance(working_capital_change, (int, float)) and not math.isnan(working_capital_change) else 0
 
     owner_earnings = net_income + depreciation - capex - working_capital_change
     if owner_earnings <= 0:
@@ -350,12 +352,18 @@ def calculate_wacc(
     # Cost of Equity (CAPM)
     cost_of_equity = risk_free_rate + beta_proxy * market_risk_premium
     
-    # Cost of Debt - estimate from interest coverage
+    # Cost of Debt - estimate from interest coverage and debt_to_equity
     if interest_coverage and interest_coverage > 0:
-        # Higher coverage = lower cost of debt
-        cost_of_debt = max(risk_free_rate + 0.01, risk_free_rate + (10 / interest_coverage))
+        base_spread = 10 / interest_coverage
     else:
-        cost_of_debt = risk_free_rate + 0.05  # Default spread
+        base_spread = 0.05  # Default spread
+
+    # Adjust by debt_to_equity if available (higher leverage = higher cost)
+    if debt_to_equity is not None and debt_to_equity > 0:
+        leverage_premium = min(debt_to_equity * 0.01, 0.05)
+        base_spread += leverage_premium
+
+    cost_of_debt = max(risk_free_rate + 0.01, risk_free_rate + base_spread)
     
     # Weights
     net_debt = max((total_debt or 0) - (cash or 0), 0)
