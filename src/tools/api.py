@@ -197,7 +197,7 @@ def get_financial_metrics(
 
     # 获取 balancesheet 数据（用于计算 enterprise_value）
     try:
-        bs_df = pro.balancesheet(ts_code=ticker, end_date=ts_end, limit=limit, fields="ts_code,end_date,total_liab,money_cap,total_share")
+        bs_df = pro.balancesheet(ts_code=ticker, end_date=ts_end, limit=limit, fields="ts_code,end_date,total_liab,money_cap,total_share,total_hldr_eqy_exc_min_int")
     except Exception as e:
         logger.warning("Failed to fetch balancesheet for %s: %s", ticker, e)
         bs_df = pd.DataFrame()
@@ -241,6 +241,12 @@ def get_financial_metrics(
         total_liab = _to_float(bs.get("total_liab"))
         money_cap = _to_float(bs.get("money_cap"))
         outstanding_shares = _to_float(bs.get("total_share"))
+        equity_exc_min = _to_float(bs.get("total_hldr_eqy_exc_min_int"))
+
+        # 手动计算负债权益比 = 总负债 / 归母权益（与国际通行 D/E 一致）
+        debt_to_equity = None
+        if total_liab is not None and equity_exc_min is not None and equity_exc_min > 0:
+            debt_to_equity = total_liab / equity_exc_min
 
         # 计算 enterprise_value = market_cap + total_debt - cash
         # balancesheet 数据单位为元，无需转换
@@ -294,7 +300,7 @@ def get_financial_metrics(
                 quick_ratio=_to_float(r.get("quick_ratio")),
                 cash_ratio=_to_float(r.get("cash_ratio")),
                 operating_cash_flow_ratio=_to_pct(r.get("q_ocf_to_sales")),
-                debt_to_equity=_to_float(r.get("debt_to_eqt")),
+                debt_to_equity=debt_to_equity,
                 debt_to_assets=_to_pct(r.get("debt_to_assets")),
                 interest_coverage=_to_float(r.get("int_to_talcap")),
                 revenue_growth=_to_pct(r.get("q_sales_yoy")),
