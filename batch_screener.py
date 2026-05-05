@@ -43,10 +43,10 @@ AGENTS = {
 }
 
 WEIGHTS = {
-    "fundamentals": 0.30,
-    "growth": 0.25,
-    "technical": 0.20,
-    "valuation": 0.25,
+    "fundamentals": 0.25,
+    "growth": 0.30,
+    "technical": 0.25,
+    "valuation": 0.20,
 }
 
 SIGNAL_MAP = {"bullish": 1.0, "neutral": 0.0, "bearish": -1.0}

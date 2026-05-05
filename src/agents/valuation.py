@@ -201,8 +201,26 @@ def valuation_analyst_agent(state: AgentState, agent_id: str = "valuation_analys
             v["weight"] * v["gap"] for v in method_values.values() if v["gap"] is not None
         ) / total_weight
 
-        signal = "bullish" if weighted_gap > 0.15 else "bearish" if weighted_gap < -0.15 else "neutral"
-        confidence = round(min(abs(weighted_gap) / 0.30 * 100, 100))
+        # Composite growth for repair-space estimation
+        rg = most_recent_metrics.revenue_growth
+        eg = most_recent_metrics.earnings_growth
+        fg = most_recent_metrics.free_cash_flow_growth
+        valid_growths = [g for g in [rg, eg, fg] if g is not None and -0.5 < g < 2.0]
+        composite_growth = statistics.median(valid_growths) if valid_growths else 0.03
+        composite_growth = max(composite_growth, 0.0)
+
+        # Valuation repair space = gap amplified by growth support
+        repair_space = weighted_gap * (1 + composite_growth)
+
+        # Signal: bullish only if undervalued AND supported by growth (avoid value traps)
+        if weighted_gap > 0.15 and composite_growth >= 0.05:
+            signal = "bullish"
+        elif weighted_gap < -0.15:
+            signal = "bearish"
+        else:
+            signal = "neutral"
+
+        confidence = round(min(abs(repair_space) / 0.30 * 100, 100))
 
         # Enhanced reasoning with DCF scenario details
         reasoning = {}
