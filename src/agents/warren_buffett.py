@@ -213,7 +213,9 @@ def analyze_consistency(financial_line_items: list) -> dict[str, any]:
     earnings_values = [item.net_income for item in financial_line_items if item.net_income]
     if len(earnings_values) >= 4:
         # Simple check: is each period's earnings bigger than the next?
-        earnings_growth = all(earnings_values[i] > earnings_values[i + 1] for i in range(len(earnings_values) - 1))
+        # Data is reverse chronological (newest first), so index i+1 is older than i.
+        # Growth means newer > older, i.e., earnings_values[i] < earnings_values[i + 1].
+        earnings_growth = all(earnings_values[i] < earnings_values[i + 1] for i in range(len(earnings_values) - 1))
 
         if earnings_growth:
             score += 3
@@ -643,7 +645,9 @@ def analyze_book_value_growth(financial_line_items: list) -> dict[str, any]:
     reasoning = []
 
     # Analyze growth consistency
-    growth_periods = sum(1 for i in range(len(book_values) - 1) if book_values[i] > book_values[i + 1])
+    # Data is reverse chronological (newest first), so index i+1 is older than i.
+    # Growth means newer < older, i.e., book_values[i] < book_values[i + 1].
+    growth_periods = sum(1 for i in range(len(book_values) - 1) if book_values[i] < book_values[i + 1])
     growth_rate = growth_periods / (len(book_values) - 1)
 
     # Score based on consistency

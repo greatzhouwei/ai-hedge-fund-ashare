@@ -20,9 +20,27 @@ from src.agents.mohnish_pabrai import mohnish_pabrai_agent
 from src.agents.nassim_taleb import nassim_taleb_agent
 from src.agents.news_sentiment import news_sentiment_agent
 from src.agents.growth_agent import growth_analyst_agent
+from src.agents.smart_money import smart_money_analyst_agent
+from src.agents.margin import margin_analyst_agent
 
 # Define analyst configuration - single source of truth
 ANALYST_CONFIG = {
+    "smart_money_analyst": {
+        "display_name": "Smart Money Analyst",
+        "description": "Northbound Capital Flow Tracker",
+        "investing_style": "Tracks foreign institutional flows via Stock Connect (沪深港通) to gauge marginal demand from offshore investors.",
+        "agent_func": smart_money_analyst_agent,
+        "type": "analyst",
+        "order": -2,
+    },
+    "margin_analyst": {
+        "display_name": "Margin Analyst",
+        "description": "Leverage Sentiment Tracker",
+        "investing_style": "Monitors margin trading balances to assess retail leverage sentiment and detect overheated positioning.",
+        "agent_func": margin_analyst_agent,
+        "type": "analyst",
+        "order": -1,
+    },
     "aswath_damodaran": {
         "display_name": "Aswath Damodaran",
         "description": "The Dean of Valuation",

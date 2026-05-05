@@ -273,9 +273,12 @@ def calculate_momentum_signals(prices_df):
     if momentum_score > 0.05 and volume_confirmation:
         signal = "bullish"
         confidence = min(abs(momentum_score) * 5, 1.0)
-    elif momentum_score < -0.05 and volume_confirmation:
+    elif momentum_score < -0.05:
+        # 缩量阴跌在 A 股很常见, 不强求放量确认
         signal = "bearish"
         confidence = min(abs(momentum_score) * 5, 1.0)
+        if not volume_confirmation:
+            confidence *= 0.7
     else:
         signal = "neutral"
         confidence = 0.5
@@ -537,13 +540,17 @@ def calculate_hurst_exponent(price_series: pd.Series, max_lag: int = 20) -> floa
         float: Hurst exponent
     """
     lags = range(2, max_lag)
+    # 注意: pandas Series 之间相减会按 index 对齐, 而 [lag:] / [:-lag] 共享原 index, 会得到全 0/NaN.
+    # 必须先转 ndarray 再做差分, 否则 Hurst 永远 = 0 (旧实现的隐藏 bug).
+    arr = np.asarray(price_series, dtype=float)
     # Add small epsilon to avoid log(0)
-    tau = [max(1e-8, np.sqrt(np.std(np.subtract(price_series[lag:], price_series[:-lag])))) for lag in lags]
+    tau = [max(1e-8, np.sqrt(np.std(arr[lag:] - arr[:-lag]))) for lag in lags]
 
     # Return the Hurst exponent from linear fit
     try:
         reg = np.polyfit(np.log(lags), np.log(tau), 1)
-        return reg[0]  # Hurst exponent is the slope
+        # tau 用了 sqrt(std(...)), 拟合斜率等于 H/2, 乘 2 还原 (与 QuantStart 经典实现一致)
+        return reg[0] * 2.0
     except (ValueError, RuntimeWarning):
         # Return 0.5 (random walk) if calculation fails
         return 0.5

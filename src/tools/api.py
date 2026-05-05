@@ -1,11 +1,13 @@
 import datetime
 import logging
 import os
+import time
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 from src.data.cache import get_cache
+from src.data.duckdb_store import get_duckdb_store
 
 # 绕过系统代理，直接访问 Tushare（国内服务无需代理）
 for _proxy_key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
@@ -24,6 +26,8 @@ from src.data.models import (
     InsiderTrade,
     InsiderTradeResponse,
     CompanyFactsResponse,
+    NorthboundHolding,
+    MarginData,
 )
 
 # Global cache instance
@@ -50,6 +54,60 @@ def _get_pro_api(api_key: str | None = None):
             raise ValueError("TUSHARE_TOKEN is not set. Please set it in your .env file.")
         _pro_api = ts.pro_api(token)
     return _pro_api
+
+
+# Module-level caches and rate limiter
+_trade_cal_cache: dict[str, pd.DataFrame] = {}
+
+# Endpoints with strict rate limits (~200/min on free tier)
+_RATE_LIMITED_ENDPOINTS = frozenset(
+    {"fina_indicator", "balancesheet", "income", "cashflow", "hk_hold", "margin_detail", "stk_holdertrade", "dividend", "index_daily"}
+)
+
+
+def _call_tushare(endpoint: str, pro, max_retries: int = 2, delay: float = 0.8, **kwargs) -> pd.DataFrame | None:
+    """Call a Tushare API endpoint with retry and rate-limiting sleep.
+
+    Tushare free tier restricts several endpoints to ~200 requests/min.
+    When concurrent workers hit the API, intermittent empty responses are
+    returned instead of exceptions. We retry empty responses and add a
+    small sleep after restrictive endpoints to stay under the limit.
+    """
+    import tushare as ts
+
+    func = getattr(pro, endpoint, None)
+    if func is None:
+        logger.warning("Unknown Tushare endpoint: %s", endpoint)
+        return None
+
+    last_exception = None
+    for attempt in range(max_retries + 1):
+        try:
+            df = func(**kwargs)
+        except Exception as e:
+            last_exception = e
+            # Rate-limit error messages vary; back off and retry
+            logger.warning("Tushare %s attempt %d failed: %s", endpoint, attempt + 1, e)
+            if attempt < max_retries:
+                time.sleep(delay * (attempt + 1))
+            continue
+
+        # Tushare sometimes returns empty DataFrame under rate pressure
+        if df is not None and not df.empty:
+            if endpoint in _RATE_LIMITED_ENDPOINTS:
+                time.sleep(0.15)
+            return df
+
+        # Empty or None → possible rate limit, retry
+        if attempt < max_retries:
+            logger.warning("Tushare %s returned empty on attempt %d, retrying...", endpoint, attempt + 1)
+            time.sleep(delay * (attempt + 1))
+
+    if last_exception is not None:
+        logger.warning("Tushare %s exhausted retries: %s", endpoint, last_exception)
+    else:
+        logger.warning("Tushare %s returned empty after %d attempts", endpoint, max_retries + 1)
+    return None
 
 
 def _to_tushare_date(date_str: str) -> str:
@@ -118,20 +176,43 @@ def _df_to_records(df: pd.DataFrame | None) -> list[dict]:
 
 
 def get_prices(ticker: str, start_date: str, end_date: str, api_key: str = None) -> list[Price]:
-    """Fetch price data from Tushare."""
+    """Fetch price data from local DuckDB or Tushare API."""
     cache_key = f"{ticker}_{start_date}_{end_date}"
     if cached_data := _cache.get_prices(cache_key):
         return [Price(**price) for price in cached_data]
 
-    pro = _get_pro_api(api_key)
+    # Try local DuckDB first
     try:
-        df = pro.daily(
-            ts_code=ticker,
-            start_date=_to_tushare_date(start_date),
-            end_date=_to_tushare_date(end_date),
-        )
-    except Exception as e:
-        logger.warning("Failed to fetch prices for %s: %s", ticker, e)
+        store = get_duckdb_store()
+        df = store.get_daily(ticker, start_date, end_date)
+        if df is not None and not df.empty:
+            records = _df_to_records(df)
+            prices = []
+            for r in records:
+                prices.append(
+                    Price(
+                        open=float(r.get("open", 0)),
+                        close=float(r.get("close", 0)),
+                        high=float(r.get("high", 0)),
+                        low=float(r.get("low", 0)),
+                        volume=int(r.get("vol", 0)),
+                        time=_from_tushare_date(str(r.get("trade_date", ""))),
+                    )
+                )
+            _cache.set_prices(cache_key, [p.model_dump() for p in prices])
+            return prices
+    except Exception:
+        pass
+
+    pro = _get_pro_api(api_key)
+    df = _call_tushare(
+        "daily",
+        pro,
+        ts_code=ticker,
+        start_date=_to_tushare_date(start_date),
+        end_date=_to_tushare_date(end_date),
+    )
+    if df is None:
         return []
 
     records = _df_to_records(df)
@@ -171,24 +252,50 @@ def get_financial_metrics(
     ts_end = _to_tushare_date(end_date)
 
     # fina_indicator 提供大部分财务指标
+    # 多请求 8 条作为去重冗余，避免 Tushare 返回重复数据导致去重后不足 limit
+    fina_df = None
     try:
-        fina_df = pro.fina_indicator(ts_code=ticker, end_date=ts_end, limit=limit)
-    except Exception as e:
-        logger.warning("Failed to fetch fina_indicator for %s: %s", ticker, e)
+        store = get_duckdb_store()
+        fina_df = store.get_fina_indicator(ticker, end_date, limit=limit + 8)
+    except Exception:
+        pass
+    if fina_df is None:
+        fina_df = _call_tushare("fina_indicator", pro, ts_code=ticker, end_date=ts_end, limit=limit + 8)
+    if fina_df is not None and not fina_df.empty:
+        fina_df = fina_df.drop_duplicates(subset=["end_date"]).sort_values("end_date", ascending=False)
+    else:
         fina_df = pd.DataFrame()
 
     # daily_basic 提供估值指标（trade_date 必须是交易日）
     # 先用 trade_cal 找到最近交易日，避免非交易日返回空
     # 往前查 60 天，确保长假期间也能覆盖到真实最近交易日
     basic_df = pd.DataFrame()
-    try:
-        cal_start = (datetime.datetime.strptime(ts_end, "%Y%m%d") - datetime.timedelta(days=60)).strftime("%Y%m%d")
-        cal_df = pro.trade_cal(start_date=cal_start, end_date=ts_end, is_open="1")
-        if cal_df is not None and not cal_df.empty:
-            latest_trade_date = str(cal_df.iloc[0]["cal_date"])
-            basic_df = pro.daily_basic(ts_code=ticker, trade_date=latest_trade_date)
-    except Exception as e:
-        logger.warning("Failed to fetch daily_basic for %s: %s", ticker, e)
+    cal_start = (datetime.datetime.strptime(ts_end, "%Y%m%d") - datetime.timedelta(days=60)).strftime("%Y%m%d")
+    cal_key = f"{cal_start}_{ts_end}"
+    cal_df = _trade_cal_cache.get(cal_key)
+    if cal_df is None:
+        # Try local DuckDB first
+        try:
+            store = get_duckdb_store()
+            cal_df = store.get_trade_cal(cal_start, ts_end, "1")
+        except Exception:
+            cal_df = None
+        if cal_df is None:
+            cal_df = _call_tushare("trade_cal", pro, start_date=cal_start, end_date=ts_end, is_open="1")
+        if cal_df is not None:
+            _trade_cal_cache[cal_key] = cal_df
+    if cal_df is not None and not cal_df.empty:
+        latest_trade_date = str(cal_df.iloc[0]["cal_date"])
+        basic_df = None
+        try:
+            store = get_duckdb_store()
+            basic_df = store.get_daily_basic(ticker, latest_trade_date)
+        except Exception:
+            pass
+        if basic_df is None:
+            basic_df = _call_tushare("daily_basic", pro, ts_code=ticker, trade_date=latest_trade_date)
+    if basic_df is None:
+        basic_df = pd.DataFrame()
 
     # 将 daily_basic 按 trade_date 转为字典方便合并
     basic_map = {}
@@ -196,19 +303,79 @@ def get_financial_metrics(
         basic_map[str(r.get("trade_date", ""))] = r
 
     # 获取 balancesheet 数据（用于计算 enterprise_value）
+    bs_df = None
     try:
-        bs_df = pro.balancesheet(ts_code=ticker, end_date=ts_end, limit=limit, fields="ts_code,end_date,total_liab,money_cap,total_share,total_hldr_eqy_exc_min_int")
-    except Exception as e:
-        logger.warning("Failed to fetch balancesheet for %s: %s", ticker, e)
+        store = get_duckdb_store()
+        bs_df = store.get_balancesheet(
+            ticker,
+            end_date,
+            limit=limit + 8,
+            fields="ts_code,end_date,total_liab,money_cap,total_share,total_hldr_eqy_exc_min_int",
+        )
+    except Exception:
+        pass
+    if bs_df is None:
+        bs_df = _call_tushare(
+            "balancesheet",
+            pro,
+            ts_code=ticker,
+            end_date=ts_end,
+            limit=limit + 8,
+            fields="ts_code,end_date,total_liab,money_cap,total_share,total_hldr_eqy_exc_min_int",
+        )
+    if bs_df is not None and not bs_df.empty:
+        bs_df = bs_df.drop_duplicates(subset=["end_date"]).sort_values("end_date", ascending=False)
+    else:
         bs_df = pd.DataFrame()
 
     bs_map = {}
     for r in _df_to_records(bs_df):
         bs_map[str(r.get("end_date", ""))] = r
 
+    # 获取 income 数据用于手动计算 EPS YoY 和单季度营收 YoY
+    #（Tushare fina_indicator 的 basic_eps_yoy / q_sales_yoy 与 income 口径存在差异）
+    income_df = None
+    try:
+        store = get_duckdb_store()
+        income_df = store.get_income(
+            ticker,
+            end_date,
+            limit=limit + 12,
+            fields="ts_code,end_date,basic_eps,total_revenue",
+        )
+    except Exception:
+        pass
+    if income_df is None:
+        income_df = _call_tushare(
+            "income",
+            pro,
+            ts_code=ticker,
+            end_date=ts_end,
+            limit=limit + 12,
+            fields="ts_code,end_date,basic_eps,total_revenue",
+        )
+    if income_df is not None and not income_df.empty:
+        income_df = income_df.drop_duplicates(subset=["end_date"]).sort_values("end_date", ascending=False)
+    else:
+        income_df = pd.DataFrame()
+
+    income_map = {}
+    for r in _df_to_records(income_df):
+        income_map[str(r.get("end_date", ""))] = r
+
     records = _df_to_records(fina_df)
     if not records:
         return []
+
+    # Pre-compute D&A estimate from the most recent record with valid ebitda + ebit.
+    # This is used as a fallback when quarterly reports (Q1/Q3) omit ebitda.
+    da_estimate = None
+    for rec in records:
+        rec_ebitda = _to_float(rec.get("ebitda"))
+        rec_ebit = _to_float(rec.get("ebit"))
+        if rec_ebitda is not None and rec_ebitda > 0 and rec_ebit is not None and rec_ebit > 0:
+            da_estimate = rec_ebitda - rec_ebit
+            break
 
     metrics = []
     for r in records:
@@ -257,10 +424,30 @@ def get_financial_metrics(
 
         # 从 fina_indicator 获取 ebitda，计算 EV/EBITDA
         ebitda_val = _to_float(r.get("ebitda"))
+        ebit_val = _to_float(r.get("ebit"))
 
+        # Fallback: estimate ebitda from ebit + D&A when quarterly report omits ebitda.
+        ebitda_missing = ebitda_val is None or pd.isna(ebitda_val) or ebitda_val <= 0
+        if (
+            ebitda_missing
+            and ebit_val is not None
+            and not pd.isna(ebit_val)
+            and ebit_val > 0
+            and da_estimate is not None
+            and not pd.isna(da_estimate)
+            and da_estimate > 0
+        ):
+            ebitda_val = ebit_val + da_estimate
+
+        # Only compute ev_to_ebitda when the source EBITDA is present (not fallback).
+        # Q1/Q3 reports often omit EBITDA; using a fallback produces a single-quarter
+        # figure that is not comparable to annual/H1 cumulative multiples and badly
+        # distorts the historical median.  We still store the fallback EBITDA in the
+        # model so that valuation agents can use the most recent profit proxy.
         ev_to_ebitda = None
         if ev is not None and ebitda_val is not None and ebitda_val > 0:
-            ev_to_ebitda = ev / ebitda_val
+            if not ebitda_missing:
+                ev_to_ebitda = ev / ebitda_val
 
         # 计算 free_cash_flow_yield = FCF / market_cap
         fcff_ps = _to_float(r.get("fcff_ps"))
@@ -268,6 +455,50 @@ def get_financial_metrics(
         if fcff_ps is not None and outstanding_shares is not None and market_cap is not None and market_cap > 0:
             fcf = fcff_ps * outstanding_shares
             fcf_yield = fcf / market_cap
+
+        # 手动计算 EPS YoY（Tushare fina_indicator 的 basic_eps_yoy 历史数据不准确）
+        eps_yoy = _to_pct(r.get("basic_eps_yoy"))
+        if end_dt and len(end_dt) == 8:
+            curr_year = int(end_dt[:4])
+            curr_md = end_dt[4:]
+            prev_dt = f"{curr_year - 1}{curr_md}"
+            curr_rec = income_map.get(end_dt)
+            prev_rec = income_map.get(prev_dt)
+            if curr_rec and prev_rec:
+                curr_eps = _to_float(curr_rec.get("basic_eps"))
+                prev_eps = _to_float(prev_rec.get("basic_eps"))
+                if curr_eps is not None and prev_eps is not None and prev_eps != 0:
+                    eps_yoy = (curr_eps - prev_eps) / abs(prev_eps)
+
+        # 手动计算单季度营收 YoY（Tushare fina_indicator.q_sales_yoy 与 income 口径存在差异）
+        revenue_yoy = _to_pct(r.get("q_sales_yoy"))
+        if end_dt and len(end_dt) == 8:
+            curr_year = int(end_dt[:4])
+            curr_md = end_dt[4:]
+            quarter_map = {"0331": None, "0630": "0331", "0930": "0630", "1231": "0930"}
+            prev_md = quarter_map.get(curr_md)
+            curr_rec = income_map.get(end_dt)
+            prev_year_dt = f"{curr_year - 1}{curr_md}"
+            prev_year_rec = income_map.get(prev_year_dt)
+            if curr_rec and prev_year_rec:
+                curr_rev = _to_float(curr_rec.get("total_revenue"))
+                prev_year_rev = _to_float(prev_year_rec.get("total_revenue"))
+                if curr_rev is not None and prev_year_rev is not None and prev_year_rev != 0:
+                    if prev_md:
+                        prev_dt = f"{curr_year}{prev_md}"
+                        prev_rec = income_map.get(prev_dt)
+                        prev_year_prev_dt = f"{curr_year - 1}{prev_md}"
+                        prev_year_prev_rec = income_map.get(prev_year_prev_dt)
+                        if prev_rec and prev_year_prev_rec:
+                            prev_rev = _to_float(prev_rec.get("total_revenue"))
+                            prev_year_prev_rev = _to_float(prev_year_prev_rec.get("total_revenue"))
+                            if prev_rev is not None and prev_year_prev_rev is not None:
+                                q_rev = curr_rev - prev_rev
+                                q_rev_prev = prev_year_rev - prev_year_prev_rev
+                                if q_rev_prev != 0:
+                                    revenue_yoy = (q_rev - q_rev_prev) / abs(q_rev_prev)
+                    else:
+                        revenue_yoy = (curr_rev - prev_year_rev) / abs(prev_year_rev)
 
         metrics.append(
             FinancialMetrics(
@@ -281,6 +512,7 @@ def get_financial_metrics(
                 price_to_book_ratio=_to_float(basic.get("pb")),
                 price_to_sales_ratio=_to_float(basic.get("ps_ttm")),
                 enterprise_value_to_ebitda_ratio=ev_to_ebitda,
+                ebitda=ebitda_val,
                 enterprise_value_to_revenue_ratio=None,
                 free_cash_flow_yield=fcf_yield,
                 peg_ratio=peg,
@@ -303,12 +535,12 @@ def get_financial_metrics(
                 debt_to_equity=debt_to_equity,
                 debt_to_assets=_to_pct(r.get("debt_to_assets")),
                 interest_coverage=_to_float(r.get("int_to_talcap")),
-                revenue_growth=_to_pct(r.get("q_sales_yoy")),
+                revenue_growth=revenue_yoy,
                 earnings_growth=_to_pct(r.get("netprofit_yoy")),
                 # BPS 是时点值（资产负债表），相邻期环比有意义
                 book_value_growth=None,  # 在下面通过相邻期 bps 计算
                 # EPS / FCF / EBITDA 是累计值，必须用同口径同比（yoy），不能用环比
-                earnings_per_share_growth=_to_pct(r.get("basic_eps_yoy")),
+                earnings_per_share_growth=eps_yoy,
                 free_cash_flow_growth=_to_pct(r.get("ocf_yoy")),
                 operating_income_growth=_to_pct(r.get("q_op_yoy")),
                 ebitda_growth=_to_pct(r.get("netprofit_yoy")),  # 无直接 ebitda_yoy，用净利润同比近似
@@ -393,14 +625,17 @@ def search_line_items(
         if not tushare_fields:
             return
         try:
+            fields_str = ",".join(["ts_code", "end_date"] + tushare_fields)
             if table == "income":
-                df = pro.income(ts_code=ticker, end_date=ts_end, limit=limit, fields=",".join(["ts_code", "end_date"] + tushare_fields))
+                df = _call_tushare("income", pro, ts_code=ticker, end_date=ts_end, limit=limit + 8, fields=fields_str)
             elif table == "balancesheet":
-                df = pro.balancesheet(ts_code=ticker, end_date=ts_end, limit=limit, fields=",".join(["ts_code", "end_date"] + tushare_fields))
+                df = _call_tushare("balancesheet", pro, ts_code=ticker, end_date=ts_end, limit=limit + 8, fields=fields_str)
             elif table == "cashflow":
-                df = pro.cashflow(ts_code=ticker, end_date=ts_end, limit=limit, fields=",".join(["ts_code", "end_date"] + tushare_fields))
+                df = _call_tushare("cashflow", pro, ts_code=ticker, end_date=ts_end, limit=limit + 8, fields=fields_str)
             else:
                 return
+            if df is not None and not df.empty:
+                df = df.drop_duplicates(subset=["end_date"]).sort_values("end_date", ascending=False).head(limit)
         except Exception as e:
             logger.warning("Failed to fetch %s for %s: %s", table, ticker, e)
             return
@@ -443,10 +678,8 @@ def search_line_items(
 
     # 使用 dividend 接口获取分红数据（总分红额 = cash_div * base_share * 10000）
     if needs_dividends:
-        try:
-            div_df = pro.dividend(ts_code=ticker)
-        except Exception as e:
-            logger.warning("Failed to fetch dividend for %s: %s", ticker, e)
+        div_df = _call_tushare("dividend", pro, ts_code=ticker)
+        if div_df is None:
             div_df = pd.DataFrame()
 
         div_by_year: dict[str, float] = {}
@@ -497,14 +730,11 @@ def get_insider_trades(
         return [InsiderTrade(**trade) for trade in cached_data]
 
     pro = _get_pro_api(api_key)
-    try:
-        df = pro.stk_holdertrade(
-            ts_code=ticker,
-            start_date=_to_tushare_date(start_date) if start_date else None,
-            end_date=_to_tushare_date(end_date),
-        )
-    except Exception as e:
-        logger.warning("Failed to fetch insider trades for %s: %s", ticker, e)
+    kwargs = {"ts_code": ticker, "end_date": _to_tushare_date(end_date)}
+    if start_date:
+        kwargs["start_date"] = _to_tushare_date(start_date)
+    df = _call_tushare("stk_holdertrade", pro, **kwargs)
+    if df is None:
         return []
 
     records = _df_to_records(df)
@@ -626,13 +856,22 @@ def get_market_cap(
     end_date: str,
     api_key: str = None,
 ) -> float | None:
-    """Fetch market cap from Tushare (daily_basic.total_mv, 万元 -> 元)."""
+    """Fetch market cap from local DuckDB or Tushare (daily_basic.total_mv, 万元 -> 元)."""
+    # Try local DuckDB first
+    try:
+        store = get_duckdb_store()
+        df = store.get_daily_basic(ticker, end_date)
+        if df is not None and not df.empty:
+            total_mv = df.iloc[0].get("total_mv")
+            if total_mv is not None:
+                return float(total_mv) * 10000
+    except Exception:
+        pass
+
     pro = _get_pro_api(api_key)
     ts_end = _to_tushare_date(end_date)
-    try:
-        df = pro.daily_basic(ts_code=ticker, trade_date=ts_end)
-    except Exception as e:
-        logger.warning("Failed to fetch market cap for %s: %s", ticker, e)
+    df = _call_tushare("daily_basic", pro, ts_code=ticker, trade_date=ts_end)
+    if df is None:
         return None
 
     records = _df_to_records(df)
@@ -660,3 +899,266 @@ def prices_to_df(prices: list[Price]) -> pd.DataFrame:
 def get_price_data(ticker: str, start_date: str, end_date: str, api_key: str = None) -> pd.DataFrame:
     prices = get_prices(ticker, start_date, end_date, api_key=api_key)
     return prices_to_df(prices)
+
+
+def get_northbound_holdings(
+    ticker: str,
+    end_date: str,
+    start_date: str | None = None,
+    limit: int = 100,
+    api_key: str = None,
+) -> list[NorthboundHolding]:
+    """Fetch northbound (Stock Connect) holdings from Tushare.
+
+    Tushare hk_hold returns low-frequency data (typically month-end snapshots).
+    We fetch a ~90-day window by default to capture 2-3 data points.
+    """
+    if start_date is None:
+        from datetime import datetime, timedelta
+        start_date = (
+            datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=90)
+        ).strftime("%Y-%m-%d")
+
+    cache_key = f"{ticker}_{start_date}_{end_date}"
+    if cached_data := _cache.get_northbound_holdings(cache_key):
+        return [NorthboundHolding(**item) for item in cached_data]
+
+    pro = _get_pro_api(api_key)
+    df = _call_tushare(
+        "hk_hold",
+        pro,
+        ts_code=ticker,
+        start_date=_to_tushare_date(start_date),
+        end_date=_to_tushare_date(end_date),
+    )
+    if df is None:
+        return []
+
+    records = _df_to_records(df)
+    if not records:
+        return []
+
+    # Sort by trade_date ascending so index 0 is oldest
+    records = sorted(records, key=lambda r: str(r.get("trade_date", "")))
+    holdings = []
+    for r in records:
+        holdings.append(
+            NorthboundHolding(
+                ticker=ticker,
+                trade_date=_from_tushare_date(str(r.get("trade_date", ""))),
+                vol=_to_float(r.get("vol")),
+                ratio=_to_float(r.get("ratio")),
+            )
+        )
+
+    _cache.set_northbound_holdings(
+        cache_key, [h.model_dump() for h in holdings]
+    )
+    return holdings
+
+
+def get_margin_data(
+    ticker: str,
+    end_date: str,
+    start_date: str | None = None,
+    limit: int = 100,
+    api_key: str = None,
+) -> list[MarginData]:
+    """Fetch margin trading (financing & securities lending) data from Tushare.
+
+    margin_detail is daily-frequency; we default to a ~30-day window.
+    """
+    if start_date is None:
+        from datetime import datetime, timedelta
+        start_date = (
+            datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=35)
+        ).strftime("%Y-%m-%d")
+
+    cache_key = f"{ticker}_{start_date}_{end_date}"
+    if cached_data := _cache.get_margin_data(cache_key):
+        return [MarginData(**item) for item in cached_data]
+
+    pro = _get_pro_api(api_key)
+    df = _call_tushare(
+        "margin_detail",
+        pro,
+        ts_code=ticker,
+        start_date=_to_tushare_date(start_date),
+        end_date=_to_tushare_date(end_date),
+    )
+    if df is None:
+        return []
+
+    records = _df_to_records(df)
+    if not records:
+        return []
+
+    records = sorted(records, key=lambda r: str(r.get("trade_date", "")))
+    margin_items = []
+    for r in records:
+        margin_items.append(
+            MarginData(
+                ticker=ticker,
+                trade_date=_from_tushare_date(str(r.get("trade_date", ""))),
+                rzye=_to_float(r.get("rzye")),
+                rqye=_to_float(r.get("rqye")),
+                rzmre=_to_float(r.get("rzmre")),
+                rzche=_to_float(r.get("rzche")),
+                rqyl=_to_float(r.get("rqyl")),
+                rzrqye=_to_float(r.get("rzrqye")),
+            )
+        )
+
+    _cache.set_margin_data(cache_key, [m.model_dump() for m in margin_items])
+    return margin_items
+
+
+def get_china_bond_yield(
+    term: float = 10.0,
+    api_key: str = None,
+) -> float | None:
+    """Fetch China government bond yield with daily caching.
+
+    Tushare ``yc_cb`` has a **2 requests/minute** rate limit,
+    so we cache aggressively and reuse the same calendar day's
+    value across all calls.  File-level cache is used so that
+    spawned worker processes share the same cache.
+    """
+    from datetime import datetime
+    import json
+    from pathlib import Path
+
+    cache_key = f"bond_yield_{term}"
+    today = datetime.now().date().isoformat()
+
+    # 1. Check file-level cache (shared across processes)
+    file_cache_path = Path(".tushare_cache")
+    file_cache_path.mkdir(exist_ok=True)
+    cache_file = file_cache_path / f"{cache_key}.json"
+
+    file_cached: dict = {}
+    if cache_file.exists():
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                file_cached = json.load(f)
+            if file_cached.get("cached_date") == today:
+                logger.info(
+                    "Using file-cached bond yield (term=%.1fyr): %.4f%% (%s)",
+                    term,
+                    file_cached["yield"] * 100,
+                    file_cached.get("trade_date", "unknown"),
+                )
+                # Also warm the in-memory cache
+                _cache.set_bond_yield(cache_key, file_cached)
+                return file_cached["yield"]
+        except Exception:
+            pass
+
+    # 2. Check in-memory cache (fast path for same process)
+    cached = _cache.get_bond_yield(cache_key)
+    if cached:
+        cached_at = cached.get("cached_at")
+        if isinstance(cached_at, str):
+            cached_at = datetime.fromisoformat(cached_at)
+        if cached_at and cached_at.date().isoformat() == today:
+            # Persist to file so other processes can see it
+            try:
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    json.dump({**cached, "cached_date": today}, f)
+            except Exception:
+                pass
+            return cached["yield"]
+
+    # 3. Fetch from API (only one process should reach here per day)
+    pro = _get_pro_api(api_key)
+    df = _call_tushare("yc_cb", pro, ts_code="1001.CB", curve_term=term)
+    if df is None or df.empty:
+        logger.warning("yc_cb returned empty for term=%.1f", term)
+        # Fallback chain: file cache -> memory cache -> hardcoded 2.30%
+        if file_cached.get("yield") is not None:
+            return file_cached["yield"]
+        if cached and cached.get("yield") is not None:
+            return cached["yield"]
+        return 0.0230
+
+    # Average both curve_type rows for the same term
+    yield_val = df["yield"].mean() / 100.0  # Convert % → decimal
+    trade_date = str(df["trade_date"].iloc[0])
+
+    payload = {
+        "yield": yield_val,
+        "trade_date": trade_date,
+        "cached_at": datetime.now().isoformat(),
+        "cached_date": today,
+    }
+    _cache.set_bond_yield(cache_key, payload)
+
+    # Persist to file for other processes
+    try:
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+    except Exception as e:
+        logger.warning("Failed to write bond yield cache file: %s", e)
+
+    logger.info(
+        "Fetched bond yield (term=%.1fyr): %.4f%% (%s)",
+        term,
+        yield_val * 100,
+        trade_date,
+    )
+    return yield_val
+
+
+def get_beta(
+    ticker: str,
+    end_date: str | None = None,
+    market_index: str = "000300.SH",
+    lookback: int = 252,
+    api_key: str = None,
+) -> float | None:
+    """Calculate stock beta against a market index using recent price history.
+
+    Beta = Cov(stock_returns, market_returns) / Var(market_returns)
+    """
+    import numpy as np
+
+    pro = _get_pro_api(api_key)
+
+    if end_date is None:
+        end_date = datetime.datetime.now().strftime("%Y%m%d")
+    else:
+        end_date = _to_tushare_date(end_date)
+
+    stock_df = _call_tushare("daily", pro, ts_code=ticker, end_date=end_date, limit=lookback + 5)
+    index_df = _call_tushare("index_daily", pro, ts_code=market_index, end_date=end_date, limit=lookback + 5)
+    if stock_df is None or stock_df.empty or index_df is None or index_df.empty:
+        logger.warning("Empty price data for beta calc: stock=%s index=%s", ticker, market_index)
+        return None
+
+    # Sort by date and compute daily returns
+    stock_df = stock_df.sort_values("trade_date")
+    index_df = index_df.sort_values("trade_date")
+
+    stock_ret = stock_df["close"].pct_change().dropna()
+    index_ret = index_df["close"].pct_change().dropna()
+
+    # Align to same length
+    min_len = min(len(stock_ret), len(index_ret))
+    if min_len < 30:
+        logger.warning("Insufficient data for beta calc (%s): %d points", ticker, min_len)
+        return None
+
+    stock_ret = stock_ret.iloc[-min_len:].to_numpy()
+    index_ret = index_ret.iloc[-min_len:].to_numpy()
+
+    # Beta = Cov(stock, market) / Var(market)
+    covariance = np.cov(stock_ret, index_ret)[0, 1]
+    variance = np.var(index_ret, ddof=1)
+
+    if variance == 0:
+        logger.warning("Zero market variance for beta calc (%s)", ticker)
+        return None
+
+    beta = covariance / variance
+    logger.info("Calculated beta for %s: %.4f (n=%d, index=%s)", ticker, beta, min_len, market_index)
+    return float(beta)

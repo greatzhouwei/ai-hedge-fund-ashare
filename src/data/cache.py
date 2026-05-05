@@ -7,6 +7,9 @@ class Cache:
         self._line_items_cache: dict[str, list[dict[str, any]]] = {}
         self._insider_trades_cache: dict[str, list[dict[str, any]]] = {}
         self._company_news_cache: dict[str, list[dict[str, any]]] = {}
+        self._northbound_cache: dict[str, list[dict[str, any]]] = {}
+        self._margin_cache: dict[str, list[dict[str, any]]] = {}
+        self._bond_yield_cache: dict[str, dict[str, any]] = {}
 
     def _merge_data(self, existing: list[dict] | None, new_data: list[dict], key_field: str) -> list[dict]:
         """Merge existing and new data, avoiding duplicates based on a key field."""
@@ -60,6 +63,30 @@ class Cache:
     def set_company_news(self, ticker: str, data: list[dict[str, any]]):
         """Append new company news to cache."""
         self._company_news_cache[ticker] = self._merge_data(self._company_news_cache.get(ticker), data, key_field="date")
+
+    def get_northbound_holdings(self, key: str) -> list[dict[str, any]] | None:
+        """Get cached northbound holdings data if available."""
+        return self._northbound_cache.get(key)
+
+    def set_northbound_holdings(self, key: str, data: list[dict[str, any]]):
+        """Cache northbound holdings data."""
+        self._northbound_cache[key] = data
+
+    def get_margin_data(self, key: str) -> list[dict[str, any]] | None:
+        """Get cached margin trading data if available."""
+        return self._margin_cache.get(key)
+
+    def set_margin_data(self, key: str, data: list[dict[str, any]]):
+        """Cache margin trading data."""
+        self._margin_cache[key] = data
+
+    def get_bond_yield(self, key: str) -> dict[str, any] | None:
+        """Get cached bond yield data if available."""
+        return self._bond_yield_cache.get(key)
+
+    def set_bond_yield(self, key: str, data: dict[str, any]):
+        """Cache bond yield data."""
+        self._bond_yield_cache[key] = data
 
 
 # Global cache instance

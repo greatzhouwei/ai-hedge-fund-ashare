@@ -8,8 +8,14 @@ import numpy as np
 import json
 from src.utils.api_key import get_api_key_from_state
 from src.utils.llm import call_llm
-from src.tools.api import get_insider_trades, get_company_news
+from src.tools.api import get_company_news
 from pydantic import BaseModel
+
+
+# Lookback window for news. Long enough to cover quarterly catalysts and
+# avoid overfitting to one-day spikes; short enough that stale headlines
+# don't dominate the current sentiment read.
+NEWS_LOOKBACK_DAYS = 60
 
 
 class NewsSentimentItem(BaseModel):
@@ -84,48 +90,36 @@ def _analyze_news_sentiment_with_llm(
 
 ##### Sentiment Agent #####
 def sentiment_analyst_agent(state: AgentState, agent_id: str = "sentiment_analyst_agent"):
-    """Analyzes market sentiment and generates trading signals for multiple tickers."""
+    """News-driven sentiment analyst.
+
+    Scope: short-term news flow only.
+
+    Insider/holder trades are intentionally NOT used here — they are already
+    consumed by `growth_agent.analyze_insider_conviction` with holder-type and
+    amount weighting. Including them again here would double-count the same
+    raw `stk_holdertrade` feed across two analysts and inflate confidence in
+    portfolio_manager's signal aggregation.
+    """
     data = state.get("data", {})
     end_date = data.get("end_date")
     tickers = data.get("tickers")
     api_key = get_api_key_from_state(state, "TUSHARE_TOKEN")
-    # Initialize sentiment analysis for each ticker
     sentiment_analysis = {}
 
     for ticker in tickers:
-        # Determine the 14-day lookback window
+        # Determine the lookback window for filtering recent news
         try:
             end_dt = datetime.strptime(str(end_date), "%Y-%m-%d")
         except (ValueError, TypeError):
             end_dt = datetime.now()
-        start_dt = end_dt - timedelta(days=60)
-        start_date_str = start_dt.strftime("%Y-%m-%d")
-
-        progress.update_status(agent_id, ticker, "Fetching insider trades")
-
-        # Get the insider trades (recent 60 days only)
-        insider_trades = get_insider_trades(
-            ticker=ticker,
-            end_date=end_date,
-            start_date=start_date_str,
-            limit=1000,
-            api_key=api_key,
-        )
-
-        progress.update_status(agent_id, ticker, "Analyzing trading patterns")
-
-        # Get the signals from the insider trades
-        transaction_shares = pd.Series([t.transaction_shares for t in insider_trades]).dropna()
-        insider_signals = np.where(transaction_shares < 0, "bearish", "bullish").tolist()
+        cutoff_dt = end_dt - timedelta(days=NEWS_LOOKBACK_DAYS)
 
         progress.update_status(agent_id, ticker, "Fetching company news")
 
         # Get the company news
         company_news = get_company_news(ticker, end_date, limit=100, api_key=api_key)
 
-        # Filter to recent 14 days only
-        cutoff_dt = start_dt
-
+        # Filter to recent window only
         def _parse_news_date(date_str):
             if not date_str:
                 return None
@@ -151,25 +145,19 @@ def sentiment_analyst_agent(state: AgentState, agent_id: str = "sentiment_analys
                 ticker, company_news, state, agent_id
             )
 
-        # Get the sentiment from the company news
+        # Map news sentiment to bullish/bearish/neutral
         sentiment = pd.Series([n.sentiment for n in company_news]).dropna()
-        news_signals = np.where(sentiment == "negative", "bearish", 
-                              np.where(sentiment == "positive", "bullish", "neutral")).tolist()
-        
-        progress.update_status(agent_id, ticker, "Combining signals")
-        # Combine signals from both sources with weights
-        insider_weight = 0.3
-        news_weight = 0.7
-        
-        # Calculate weighted signal counts
-        bullish_signals = (
-            insider_signals.count("bullish") * insider_weight +
-            news_signals.count("bullish") * news_weight
-        )
-        bearish_signals = (
-            insider_signals.count("bearish") * insider_weight +
-            news_signals.count("bearish") * news_weight
-        )
+        news_signals = np.where(
+            sentiment == "negative", "bearish",
+            np.where(sentiment == "positive", "bullish", "neutral"),
+        ).tolist()
+
+        progress.update_status(agent_id, ticker, "Aggregating signals")
+
+        # Aggregate by simple vote count (each article = one vote)
+        bullish_signals = news_signals.count("bullish")
+        bearish_signals = news_signals.count("bearish")
+        neutral_signals = news_signals.count("neutral")
 
         if bullish_signals > bearish_signals:
             overall_signal = "bullish"
@@ -178,45 +166,24 @@ def sentiment_analyst_agent(state: AgentState, agent_id: str = "sentiment_analys
         else:
             overall_signal = "neutral"
 
-        # Calculate confidence level based on the weighted proportion
-        total_weighted_signals = len(insider_signals) * insider_weight + len(news_signals) * news_weight
-        confidence = 0  # Default confidence when there are no signals
-        if total_weighted_signals > 0:
-            confidence = round((max(bullish_signals, bearish_signals) / total_weighted_signals) * 100, 2)
-        
-        # Create structured reasoning similar to technical analysis
+        total_signals = len(news_signals)
+        confidence = 0
+        if total_signals > 0:
+            confidence = round(
+                max(bullish_signals, bearish_signals) / total_signals * 100, 2
+            )
+
         reasoning = {
-            "insider_trading": {
-                "signal": "bullish" if insider_signals.count("bullish") > insider_signals.count("bearish") else 
-                         "bearish" if insider_signals.count("bearish") > insider_signals.count("bullish") else "neutral",
-                "confidence": round((max(insider_signals.count("bullish"), insider_signals.count("bearish")) / max(len(insider_signals), 1)) * 100),
-                "metrics": {
-                    "total_trades": len(insider_signals),
-                    "bullish_trades": insider_signals.count("bullish"),
-                    "bearish_trades": insider_signals.count("bearish"),
-                    "weight": insider_weight,
-                    "weighted_bullish": round(insider_signals.count("bullish") * insider_weight, 1),
-                    "weighted_bearish": round(insider_signals.count("bearish") * insider_weight, 1),
-                }
-            },
             "news_sentiment": {
-                "signal": "bullish" if news_signals.count("bullish") > news_signals.count("bearish") else 
-                         "bearish" if news_signals.count("bearish") > news_signals.count("bullish") else "neutral",
-                "confidence": round((max(news_signals.count("bullish"), news_signals.count("bearish")) / max(len(news_signals), 1)) * 100),
+                "signal": overall_signal,
+                "confidence": confidence,
                 "metrics": {
-                    "total_articles": len(news_signals),
-                    "bullish_articles": news_signals.count("bullish"),
-                    "bearish_articles": news_signals.count("bearish"),
-                    "neutral_articles": news_signals.count("neutral"),
-                    "weight": news_weight,
-                    "weighted_bullish": round(news_signals.count("bullish") * news_weight, 1),
-                    "weighted_bearish": round(news_signals.count("bearish") * news_weight, 1),
-                }
-            },
-            "combined_analysis": {
-                "total_weighted_bullish": round(bullish_signals, 1),
-                "total_weighted_bearish": round(bearish_signals, 1),
-                "signal_determination": f"{'Bullish' if bullish_signals > bearish_signals else 'Bearish' if bearish_signals > bullish_signals else 'Neutral'} based on weighted signal comparison"
+                    "total_articles": total_signals,
+                    "bullish_articles": bullish_signals,
+                    "bearish_articles": bearish_signals,
+                    "neutral_articles": neutral_signals,
+                    "lookback_days": NEWS_LOOKBACK_DAYS,
+                },
             }
         }
 

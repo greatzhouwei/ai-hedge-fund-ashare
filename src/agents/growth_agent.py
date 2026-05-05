@@ -7,6 +7,7 @@ Implements a growth-focused valuation methodology.
 
 import json
 import statistics
+from datetime import datetime, timedelta
 from langchain_core.messages import HumanMessage
 from src.graph.state import AgentState, show_agent_reasoning
 from src.utils.progress import progress
@@ -15,6 +16,8 @@ from src.tools.api import (
     get_financial_metrics,
     get_insider_trades,
 )
+
+INSIDER_LOOKBACK_DAYS = 180
 
 def growth_analyst_agent(state: AgentState, agent_id: str = "growth_analyst_agent"):
     """Run growth analysis across tickers and write signals back to `state`."""
@@ -43,9 +46,13 @@ def growth_analyst_agent(state: AgentState, agent_id: str = "growth_analyst_agen
         most_recent_metrics = financial_metrics[0]
 
         # --- Insider Trades ---
+        insider_start_date = (
+            datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=INSIDER_LOOKBACK_DAYS)
+        ).strftime("%Y-%m-%d")
         insider_trades = get_insider_trades(
             ticker=ticker,
             end_date=end_date,
+            start_date=insider_start_date,
             limit=1000,
             api_key=api_key
         )
@@ -164,9 +171,10 @@ def analyze_growth_trends(metrics: list) -> dict:
     eps_growth = [m.earnings_per_share_growth for m in metrics]
     fcf_growth = [m.free_cash_flow_growth for m in metrics]
 
-    rev_trend = _calculate_trend(rev_growth)
-    eps_trend = _calculate_trend(eps_growth)
-    fcf_trend = _calculate_trend(fcf_growth)
+    # Reverse to chronological order (oldest first) before trend calculation
+    rev_trend = _calculate_trend(list(reversed(rev_growth)))
+    eps_trend = _calculate_trend(list(reversed(eps_growth)))
+    fcf_trend = _calculate_trend(list(reversed(fcf_growth)))
 
     # Score based on recent growth and trend
     score = 0
@@ -243,9 +251,10 @@ def analyze_margin_trends(metrics: list) -> dict:
     operating_margins = [m.operating_margin for m in metrics]
     net_margins = [m.net_margin for m in metrics]
 
-    gm_trend = _calculate_trend(gross_margins)
-    om_trend = _calculate_trend(operating_margins)
-    nm_trend = _calculate_trend(net_margins)
+    # Reverse to chronological order (oldest first) before trend calculation
+    gm_trend = _calculate_trend(list(reversed(gross_margins)))
+    om_trend = _calculate_trend(list(reversed(operating_margins)))
+    nm_trend = _calculate_trend(list(reversed(net_margins)))
     
     score = 0
     
@@ -280,31 +289,70 @@ def analyze_margin_trends(metrics: list) -> dict:
     }
 
 def analyze_insider_conviction(trades: list) -> dict:
-    """Analyzes insider trading activity."""
-    
-    buys = sum(t.transaction_value for t in trades if t.transaction_value and t.transaction_shares > 0)
-    sells = sum(abs(t.transaction_value) for t in trades if t.transaction_value and t.transaction_shares < 0)
-    
-    if (buys + sells) == 0:
-        net_flow_ratio = 0
+    """Analyze A-share insider trading with holder-type weighting.
+
+    Tushare `stk_holdertrade` mixes signal qualities under one feed:
+        G (高管/executives)   – operationally informed, strongest signal
+        P (个人/individuals)  – includes 实控人/family, mixed quality
+        C (公司/companies)    – often PE/holding entities, mostly mechanical
+    Without weighting, a single PE exit dwarfs every executive buy. Thresholds
+    are also shifted negative because A-share companies are net sellers in any
+    typical 6-month window (lock-up expiries, IPO unwinds).
+    """
+
+    HOLDER_WEIGHTS = {"G": 1.0, "P": 0.5, "C": 0.2}
+    DEFAULT_WEIGHT = 0.2
+
+    weighted_buys = 0.0
+    weighted_sells = 0.0
+    raw_buys = 0.0
+    raw_sells = 0.0
+    by_type: dict[str, dict[str, float]] = {}
+
+    for t in trades:
+        if not t.transaction_value or not t.transaction_shares:
+            continue
+        holder_type = t.title or "?"
+        weight = HOLDER_WEIGHTS.get(holder_type, DEFAULT_WEIGHT)
+        bucket = by_type.setdefault(holder_type, {"buys": 0.0, "sells": 0.0})
+
+        if t.transaction_shares > 0:
+            weighted_buys += t.transaction_value * weight
+            raw_buys += t.transaction_value
+            bucket["buys"] += t.transaction_value
+        else:
+            val = abs(t.transaction_value)
+            weighted_sells += val * weight
+            raw_sells += val
+            bucket["sells"] += val
+
+    total_weighted = weighted_buys + weighted_sells
+    if total_weighted == 0:
+        net_flow_ratio = 0.0
     else:
-        net_flow_ratio = (buys - sells) / (buys + sells)
-    
-    score = 0
-    if net_flow_ratio > 0.5:
+        net_flow_ratio = (weighted_buys - weighted_sells) / total_weighted
+
+    if net_flow_ratio > 0.3:
         score = 1.0
-    elif net_flow_ratio > 0.1:
+    elif net_flow_ratio > 0.0:
         score = 0.7
-    elif net_flow_ratio > -0.1:
-        score = 0.5 # Neutral
+    elif net_flow_ratio > -0.3:
+        score = 0.5
+    elif net_flow_ratio > -0.6:
+        score = 0.3
     else:
         score = 0.2
-        
+
     return {
         "score": score,
-        "net_flow_ratio": net_flow_ratio,
-        "buys": buys,
-        "sells": sells
+        "net_flow_ratio": round(net_flow_ratio, 4),
+        "weighted_buys": round(weighted_buys, 2),
+        "weighted_sells": round(weighted_sells, 2),
+        "raw_buys": round(raw_buys, 2),
+        "raw_sells": round(raw_sells, 2),
+        "trade_count": len(trades),
+        "lookback_days": INSIDER_LOOKBACK_DAYS,
+        "by_holder_type": by_type,
     }
 
 def check_financial_health(metrics) -> dict:

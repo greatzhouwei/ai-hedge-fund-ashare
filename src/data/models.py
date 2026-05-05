@@ -26,6 +26,7 @@ class FinancialMetrics(BaseModel):
     price_to_book_ratio: float | None
     price_to_sales_ratio: float | None
     enterprise_value_to_ebitda_ratio: float | None
+    ebitda: float | None = None
     enterprise_value_to_revenue_ratio: float | None
     free_cash_flow_yield: float | None
     peg_ratio: float | None
@@ -204,6 +205,24 @@ class AgentStateData(BaseModel):
     start_date: str
     end_date: str
     ticker_analyses: dict[str, TickerAnalysis]  # ticker -> analysis mapping
+
+
+class NorthboundHolding(BaseModel):
+    ticker: str
+    trade_date: str
+    vol: float | None = None
+    ratio: float | None = None
+
+
+class MarginData(BaseModel):
+    ticker: str
+    trade_date: str
+    rzye: float | None = None  # 融资余额
+    rqye: float | None = None  # 融券余额
+    rzmre: float | None = None  # 融资买入额
+    rzche: float | None = None  # 融资偿还额
+    rqyl: float | None = None  # 融券余量
+    rzrqye: float | None = None  # 融资融券余额
 
 
 class AgentStateMetadata(BaseModel):
