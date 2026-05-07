@@ -6,6 +6,7 @@ Implements a growth-focused valuation methodology.
 """
 
 import json
+import math
 import statistics
 from datetime import datetime, timedelta
 from langchain_core.messages import HumanMessage
@@ -45,36 +46,24 @@ def growth_analyst_agent(state: AgentState, agent_id: str = "growth_analyst_agen
         
         most_recent_metrics = financial_metrics[0]
 
-        # --- Insider Trades ---
-        insider_start_date = (
-            datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=INSIDER_LOOKBACK_DAYS)
-        ).strftime("%Y-%m-%d")
-        insider_trades = get_insider_trades(
-            ticker=ticker,
-            end_date=end_date,
-            start_date=insider_start_date,
-            limit=1000,
-            api_key=api_key
-        )
-
         # ------------------------------------------------------------------
         # Tool Implementation
         # ------------------------------------------------------------------
-        
+
         # 1. Historical Growth Analysis
         growth_trends = analyze_growth_trends(financial_metrics)
-        
+
         # 2. Growth-Oriented Valuation
         valuation_metrics = analyze_valuation(most_recent_metrics)
-        
+
         # 3. Margin Expansion Monitor
         margin_trends = analyze_margin_trends(financial_metrics)
-        
-        # 4. Insider Conviction Tracker
-        insider_conviction = analyze_insider_conviction(insider_trades)
-        
-        # 5. Financial Health Check
+
+        # 4. Financial Health Check
         financial_health = check_financial_health(most_recent_metrics)
+
+        # NOTE: Insider Conviction tracker disabled for A-shares
+        # (insider trades have limited signal quality in China market)
 
         # ------------------------------------------------------------------
         # Aggregate & signal
@@ -83,16 +72,14 @@ def growth_analyst_agent(state: AgentState, agent_id: str = "growth_analyst_agen
             "growth": growth_trends['score'],
             "valuation": valuation_metrics['score'],
             "margins": margin_trends['score'],
-            "insider": insider_conviction['score'],
             "health": financial_health['score']
         }
-        
+
         weights = {
-            "growth": 0.40,
-            "valuation": 0.25,
-            "margins": 0.15,
-            "insider": 0.10,
-            "health": 0.10
+            "growth": 0.44,
+            "valuation": 0.28,
+            "margins": 0.17,
+            "health": 0.11
         }
 
         weighted_score = sum(scores[key] * weights[key] for key in scores)
@@ -110,7 +97,6 @@ def growth_analyst_agent(state: AgentState, agent_id: str = "growth_analyst_agen
             "historical_growth": growth_trends,
             "growth_valuation": valuation_metrics,
             "margin_expansion": margin_trends,
-            "insider_conviction": insider_conviction,
             "financial_health": financial_health,
             "final_analysis": {
                 "signal": signal,
@@ -160,7 +146,8 @@ def _calculate_trend(data: list[float | None]) -> float:
         n = len(y)
         
         slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x**2)
-        return slope
+        # 转为"百分点/期"，与聚宽一致（更直观）
+        return slope * 100
     except ZeroDivisionError:
         return 0.0
 
@@ -173,8 +160,15 @@ def analyze_growth_trends(metrics: list) -> dict:
 
     # Reverse to chronological order (oldest first) before trend calculation
     rev_trend = _calculate_trend(list(reversed(rev_growth)))
-    eps_trend = _calculate_trend(list(reversed(eps_growth)))
-    fcf_trend = _calculate_trend(list(reversed(fcf_growth)))
+    # EPS/FCF 排除最旧的一个数据点（与聚宽一致）
+    eps_data = list(reversed(eps_growth))
+    if len(eps_data) > 10:
+        eps_data = eps_data[1:]
+    eps_trend = _calculate_trend(eps_data)
+    fcf_data = list(reversed(fcf_growth))
+    if len(fcf_data) > 10:
+        fcf_data = fcf_data[1:]
+    fcf_trend = _calculate_trend(fcf_data)
 
     # Score based on recent growth and trend
     score = 0
@@ -310,7 +304,7 @@ def analyze_insider_conviction(trades: list) -> dict:
     by_type: dict[str, dict[str, float]] = {}
 
     for t in trades:
-        if not t.transaction_value or not t.transaction_shares:
+        if t.transaction_value is None or math.isnan(t.transaction_value) or not t.transaction_shares:
             continue
         holder_type = t.title or "?"
         weight = HOLDER_WEIGHTS.get(holder_type, DEFAULT_WEIGHT)

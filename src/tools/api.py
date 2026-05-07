@@ -1,5 +1,6 @@
 import datetime
 import logging
+import math
 import os
 import time
 import pandas as pd
@@ -262,6 +263,12 @@ def get_financial_metrics(
     if fina_df is None:
         fina_df = _call_tushare("fina_indicator", pro, ts_code=ticker, end_date=ts_end, limit=limit + 8)
     if fina_df is not None and not fina_df.empty:
+        # 过滤掉尚未披露的数据（ann_date > 查询日期），防止 look-ahead bias
+        if "ann_date" in fina_df.columns:
+            fina_df = fina_df[fina_df["ann_date"] <= ts_end]
+        # 优先保留 update_flag=1（最新修正版），再按 end_date 去重
+        if "update_flag" in fina_df.columns:
+            fina_df = fina_df.sort_values("update_flag", ascending=False)
         fina_df = fina_df.drop_duplicates(subset=["end_date"]).sort_values("end_date", ascending=False)
     else:
         fina_df = pd.DataFrame()
@@ -341,7 +348,7 @@ def get_financial_metrics(
             ticker,
             end_date,
             limit=limit + 12,
-            fields="ts_code,end_date,basic_eps,total_revenue",
+            fields="ts_code,end_date,basic_eps,total_revenue,n_income_attr_p",
         )
     except Exception:
         pass
@@ -352,7 +359,7 @@ def get_financial_metrics(
             ts_code=ticker,
             end_date=ts_end,
             limit=limit + 12,
-            fields="ts_code,end_date,basic_eps,total_revenue",
+            fields="ts_code,end_date,basic_eps,total_revenue,n_income_attr_p",
         )
     if income_df is not None and not income_df.empty:
         income_df = income_df.drop_duplicates(subset=["end_date"]).sort_values("end_date", ascending=False)
@@ -362,6 +369,36 @@ def get_financial_metrics(
     income_map = {}
     for r in _df_to_records(income_df):
         income_map[str(r.get("end_date", ""))] = r
+
+    # 获取 cashflow 数据用于计算 TTM FCF (OCF - CapEx)
+    cashflow_df = None
+    try:
+        store = get_duckdb_store()
+        cashflow_df = store.get_cashflow(
+            ticker,
+            end_date,
+            limit=limit + 12,
+            fields="ts_code,end_date,n_cashflow_act,c_pay_acq_const_fiolta",
+        )
+    except Exception:
+        pass
+    if cashflow_df is None:
+        cashflow_df = _call_tushare(
+            "cashflow",
+            pro,
+            ts_code=ticker,
+            end_date=ts_end,
+            limit=limit + 12,
+            fields="ts_code,end_date,n_cashflow_act,c_pay_acq_const_fiolta",
+        )
+    if cashflow_df is not None and not cashflow_df.empty:
+        cashflow_df = cashflow_df.drop_duplicates(subset=["end_date"]).sort_values("end_date", ascending=False)
+    else:
+        cashflow_df = pd.DataFrame()
+
+    cashflow_map = {}
+    for r in _df_to_records(cashflow_df):
+        cashflow_map[str(r.get("end_date", ""))] = r
 
     records = _df_to_records(fina_df)
     if not records:
@@ -377,6 +414,15 @@ def get_financial_metrics(
             da_estimate = rec_ebitda - rec_ebit
             break
 
+    # 预计算 TTM 所需的单季度数据
+    income_items = sorted(income_map.items(), key=lambda x: x[0], reverse=True)
+    eps_quarterly = _split_to_quarterly([(k, _to_float(v.get("basic_eps"))) for k, v in income_items])
+    np_quarterly = _split_to_quarterly([(k, _to_float(v.get("n_income_attr_p"))) for k, v in income_items])
+
+    cashflow_items = sorted(cashflow_map.items(), key=lambda x: x[0], reverse=True)
+    ocf_quarterly = _split_to_quarterly([(k, _to_float(v.get("n_cashflow_act"))) for k, v in cashflow_items])
+    capex_quarterly = _split_to_quarterly([(k, _to_float(v.get("c_pay_acq_const_fiolta"))) for k, v in cashflow_items])
+
     metrics = []
     for r in records:
         end_dt = str(r.get("end_date", ""))
@@ -390,11 +436,11 @@ def get_financial_metrics(
         total_mv = basic.get("total_mv")
         market_cap = float(total_mv) * 10000 if total_mv is not None else None
 
-        # 手动计算 PEG = PE_TTM / 净利润同比增长率
+        # PEG = PE_TTM / 单季度净利润同比百分点（与聚宽一致）
         pe_ttm = _to_float(basic.get("pe_ttm"))
-        netprofit_yoy = _to_float(r.get("netprofit_yoy"))
-        if pe_ttm is not None and netprofit_yoy is not None and netprofit_yoy > 0:
-            peg = pe_ttm / netprofit_yoy
+        sq_np_yoy = _calculate_quarterly_yoy(np_quarterly, end_dt)
+        if pe_ttm is not None and sq_np_yoy is not None and sq_np_yoy > 0:
+            peg = pe_ttm / (sq_np_yoy * 100)  # 聚宽使用百分点而非小数
         else:
             peg = None
 
@@ -456,19 +502,8 @@ def get_financial_metrics(
             fcf = fcff_ps * outstanding_shares
             fcf_yield = fcf / market_cap
 
-        # 手动计算 EPS YoY（Tushare fina_indicator 的 basic_eps_yoy 历史数据不准确）
+        # EPS YoY（使用 Tushare fina_indicator 提供的累计同比，与聚宽一致）
         eps_yoy = _to_pct(r.get("basic_eps_yoy"))
-        if end_dt and len(end_dt) == 8:
-            curr_year = int(end_dt[:4])
-            curr_md = end_dt[4:]
-            prev_dt = f"{curr_year - 1}{curr_md}"
-            curr_rec = income_map.get(end_dt)
-            prev_rec = income_map.get(prev_dt)
-            if curr_rec and prev_rec:
-                curr_eps = _to_float(curr_rec.get("basic_eps"))
-                prev_eps = _to_float(prev_rec.get("basic_eps"))
-                if curr_eps is not None and prev_eps is not None and prev_eps != 0:
-                    eps_yoy = (curr_eps - prev_eps) / abs(prev_eps)
 
         # 手动计算单季度营收 YoY（Tushare fina_indicator.q_sales_yoy 与 income 口径存在差异）
         revenue_yoy = _to_pct(r.get("q_sales_yoy"))
@@ -541,7 +576,7 @@ def get_financial_metrics(
                 book_value_growth=None,  # 在下面通过相邻期 bps 计算
                 # EPS / FCF / EBITDA 是累计值，必须用同口径同比（yoy），不能用环比
                 earnings_per_share_growth=eps_yoy,
-                free_cash_flow_growth=_to_pct(r.get("ocf_yoy")),
+                free_cash_flow_growth=_to_pct(r.get("ocf_yoy")),  # 累计 OCF 同比，与聚宽一致
                 operating_income_growth=_to_pct(r.get("q_op_yoy")),
                 ebitda_growth=_to_pct(r.get("netprofit_yoy")),  # 无直接 ebitda_yoy，用净利润同比近似
                 payout_ratio=None,  # Tushare 无标准分红率字段
@@ -578,6 +613,131 @@ def _to_pct(value) -> float | None:
     if f is None:
         return None
     return f / 100
+
+
+def _prev_quarter(end_dt: str) -> str | None:
+    """Get the previous quarter end date.
+
+    e.g., 20250630 -> 20250331, 20250331 -> 20241231
+    """
+    if len(end_dt) != 8:
+        return None
+    year = int(end_dt[:4])
+    md = end_dt[4:]
+    mapping = {"0331": (year - 1, "1231"), "0630": (year, "0331"), "0930": (year, "0630"), "1231": (year, "0930")}
+    if md not in mapping:
+        return None
+    y, m = mapping[md]
+    return f"{y:04d}{m}"
+
+
+def _split_to_quarterly(values: list[tuple[str, float | None]]) -> dict[str, float | None]:
+    """Convert cumulative financial values to single-quarter values.
+
+    A-share financial reports are cumulative (Q1=Jan-Mar, Q2=Jan-Jun, etc.).
+    This function splits them into single-quarter values so that TTM can be
+    computed correctly.
+
+    Args:
+        values: List of (end_date, cumulative_value) tuples, sorted by end_date descending.
+
+    Returns:
+        Dict mapping end_date to single-quarter value.
+    """
+    value_map = {end_dt: val for end_dt, val in values}
+    result: dict[str, float | None] = {}
+    for end_dt, val in values:
+        if val is None:
+            result[end_dt] = None
+            continue
+        md = end_dt[4:]
+        if md == "0331":
+            # Q1: single quarter = cumulative value
+            result[end_dt] = val
+        else:
+            prev_end = _prev_quarter(end_dt)
+            prev_val = value_map.get(prev_end) if prev_end else None
+            if prev_val is not None:
+                result[end_dt] = val - prev_val
+            else:
+                result[end_dt] = None
+    return result
+
+
+def _calculate_ttm(quarterly_map: dict[str, float | None], end_dt: str) -> float | None:
+    """Calculate TTM (sum of last 4 single quarters) for a given end_date."""
+    total = 0.0
+    curr = end_dt
+    for _ in range(4):
+        qv = quarterly_map.get(curr)
+        if qv is None:
+            return None
+        total += qv
+        curr = _prev_quarter(curr)
+        if curr is None:
+            return None
+    return total
+
+
+def _calculate_ttm_yoy(quarterly_map: dict[str, float | None], end_dt: str) -> float | None:
+    """Calculate TTM YoY growth for a given end_date."""
+    current_ttm = _calculate_ttm(quarterly_map, end_dt)
+    prior_end = end_dt
+    for _ in range(4):
+        prior_end = _prev_quarter(prior_end)
+        if prior_end is None:
+            return None
+    prior_ttm = _calculate_ttm(quarterly_map, prior_end)
+    if current_ttm is None or prior_ttm is None or prior_ttm == 0:
+        return None
+    return (current_ttm - prior_ttm) / abs(prior_ttm)
+
+
+def _calculate_fcf_ttm_yoy(
+    ocf_quarterly: dict[str, float | None],
+    capex_quarterly: dict[str, float | None],
+    end_dt: str,
+) -> float | None:
+    """Calculate TTM FCF YoY growth. FCF = OCF - CapEx."""
+    current_ocf = _calculate_ttm(ocf_quarterly, end_dt)
+    current_capex = _calculate_ttm(capex_quarterly, end_dt)
+    if current_ocf is None or current_capex is None:
+        return None
+    current_fcf = current_ocf - current_capex
+
+    prior_end = end_dt
+    for _ in range(4):
+        prior_end = _prev_quarter(prior_end)
+        if prior_end is None:
+            return None
+    prior_ocf = _calculate_ttm(ocf_quarterly, prior_end)
+    prior_capex = _calculate_ttm(capex_quarterly, prior_end)
+    if prior_ocf is None or prior_capex is None:
+        return None
+    prior_fcf = prior_ocf - prior_capex
+
+    if prior_fcf == 0:
+        return None
+    return (current_fcf - prior_fcf) / abs(prior_fcf)
+
+
+def _calculate_quarterly_yoy(quarterly_map: dict[str, float | None], end_dt: str) -> float | None:
+    """Calculate single-quarter YoY growth for a given end_date.
+
+    聚宽 PEG 使用单季度净利润同比百分点（非累计 TTM 或累计同比）。
+    """
+    curr_q = quarterly_map.get(end_dt)
+    if curr_q is None:
+        return None
+    if len(end_dt) != 8:
+        return None
+    year = int(end_dt[:4])
+    md = end_dt[4:]
+    prev_dt = f"{year - 1}{md}"
+    prev_q = quarterly_map.get(prev_dt)
+    if prev_q is not None and prev_q != 0:
+        return (curr_q - prev_q) / abs(prev_q)
+    return None
 
 
 def search_line_items(
@@ -753,6 +913,10 @@ def get_insider_trades(
             change_vol = 0.0
 
         ann_date = str(r.get("ann_date", ""))
+        avg_price = _to_float(r.get("avg_price"))
+        if avg_price is not None and math.isnan(avg_price):
+            avg_price = None
+        transaction_value = change_vol * avg_price if (change_vol and avg_price is not None) else None
         trades.append(
             InsiderTrade(
                 ticker=ticker,
@@ -762,8 +926,8 @@ def get_insider_trades(
                 is_board_director=None,
                 transaction_date=_from_tushare_date(ann_date) if ann_date else None,
                 transaction_shares=change_vol,
-                transaction_price_per_share=_to_float(r.get("avg_price")),
-                transaction_value=change_vol * (_to_float(r.get("avg_price")) or 0.0) if change_vol else None,
+                transaction_price_per_share=avg_price,
+                transaction_value=transaction_value,
                 shares_owned_before_transaction=None,
                 shares_owned_after_transaction=_to_float(r.get("after_share")),
                 security_title=None,
