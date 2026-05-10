@@ -1,0 +1,257 @@
+{
+  "date": "2025-01-02",
+  "source": "joinquant",
+  "filter_universe_size": 10,
+  "stocks": [
+    {
+      "rank": 1,
+      "ts_code": "600301.SH",
+      "jq_code": "600301.XSHG",
+      "scores": {"fundamentals": 1.0000, "growth": 0.8700, "technical": 0.7950, "composite": 0.8967},
+      "fundamentals": {
+        "profitability": {"roe": 0.17, "net_margin": 0.28, "op_margin": 0.33},
+        "growth": {"rev_growth": 0.7313, "np_growth": 1.2523, "bv_growth": 0.1334},
+        "health": {"current_ratio": 1.11, "debt_to_equity": 0.70, "fcf_per_share": 0.94, "eps": 0.30},
+        "valuation": {"pe": 18.40, "pb": 2.77, "ps": 2.59}
+      },
+      "growth": {
+        "growth": {"rev_growth": 1.8902, "rev_trend": 32.708, "eps_growth": 1.5789, "eps_trend": -37.388, "fcf_growth": 1.9240, "fcf_trend": 60.960},
+        "valuation": {"peg": 0.14, "ps": 2.59},
+        "margins": {"gross_margin": 0.39, "gm_trend": 2.881, "op_margin": 0.27, "om_trend": 2.450, "net_margin": 0.23, "nm_trend": 2.036},
+        "health": {"debt_to_equity": 0.70, "current_ratio": 1.11},
+        "summary": {"signal": "bullish", "confidence": 73, "score": 0.87}
+      },
+      "technical": {
+        "trend": {"adx": 18.84, "ema8": 17.66, "ema21": 18.09, "ema55": 18.12, "tf_score": 0.5000},
+        "mean_reversion": {"rsi14": 34.92, "price_vs_bb": 2.02, "mr_score": 1.0000},
+        "momentum": {"mom_3m": 0.0173, "mom_6m": -0.1232, "mom_score": 0.7000},
+        "volatility": {"vol_regime": 0.58, "vol_score": 1.0000}
+      }
+    },
+    {
+      "rank": 2,
+      "ts_code": "600208.SH",
+      "jq_code": "600208.XSHG",
+      "scores": {"fundamentals": 0.8500, "growth": 0.9200, "technical": 0.9000, "composite": 0.8905},
+      "fundamentals": {
+        "profitability": {"roe": 0.04, "net_margin": 0.37, "op_margin": 0.47},
+        "growth": {"rev_growth": 0.9860, "np_growth": -1.3614, "bv_growth": 0.0123},
+        "health": {"current_ratio": 1.01, "debt_to_equity": 1.28, "fcf_per_share": 0.25, "eps": 0.05},
+        "valuation": {"pe": 15.18, "pb": 0.57, "ps": 0.91}
+      },
+      "growth": {
+        "growth": {"rev_growth": 1.7777, "rev_trend": 12.855, "eps_growth": 0.6269, "eps_trend": 11.572, "fcf_growth": 1.9302, "fcf_trend": -14.771},
+        "valuation": {"peg": 0.49, "ps": 0.91},
+        "margins": {"gross_margin": 0.42, "gm_trend": 1.696, "op_margin": 0.21, "om_trend": 0.402, "net_margin": 0.12, "nm_trend": 0.030},
+        "health": {"debt_to_equity": 1.28, "current_ratio": 1.01},
+        "summary": {"signal": "bullish", "confidence": 84, "score": 0.92}
+      },
+      "technical": {
+        "trend": {"adx": 18.81, "ema8": 3.03, "ema21": 3.07, "ema55": 2.91, "tf_score": 0.5000},
+        "mean_reversion": {"rsi14": 43.65, "price_vs_bb": 19.02, "mr_score": 1.0000},
+        "momentum": {"mom_3m": 0.0459, "mom_6m": 0.8854, "mom_score": 1.0000},
+        "volatility": {"vol_regime": 0.58, "vol_score": 1.0000}
+      }
+    },
+    {
+      "rank": 3,
+      "ts_code": "605305.SH",
+      "jq_code": "605305.XSHG",
+      "scores": {"fundamentals": 1.0000, "growth": 0.8300, "technical": 0.8250, "composite": 0.8882},
+      "fundamentals": {
+        "profitability": {"roe": 0.14, "net_margin": 0.27, "op_margin": 0.33},
+        "growth": {"rev_growth": 0.0296, "np_growth": 1.4922, "bv_growth": 0.1262},
+        "health": {"current_ratio": 3.93, "debt_to_equity": 0.30, "fcf_per_share": 0.47, "eps": 0.46},
+        "valuation": {"pe": 18.44, "pb": 2.41, "ps": 4.50}
+      },
+      "growth": {
+        "growth": {"rev_growth": 0.4293, "rev_trend": 11.154, "eps_growth": 0.8280, "eps_trend": 28.403, "fcf_growth": 0.8660, "fcf_trend": -13.130},
+        "valuation": {"peg": 0.11, "ps": 4.50},
+        "margins": {"gross_margin": 0.48, "gm_trend": 0.517, "op_margin": 0.29, "om_trend": -0.102, "net_margin": 0.24, "nm_trend": -0.164},
+        "health": {"debt_to_equity": 0.30, "current_ratio": 3.93},
+        "summary": {"signal": "bullish", "confidence": 66, "score": 0.83}
+      },
+      "technical": {
+        "trend": {"adx": 22.02, "ema8": 28.48, "ema21": 28.36, "ema55": 27.99, "tf_score": 0.5000},
+        "mean_reversion": {"rsi14": 49.90, "price_vs_bb": 54.07, "mr_score": 0.7000},
+        "momentum": {"mom_3m": 0.0524, "mom_6m": 0.1824, "mom_score": 1.0000},
+        "volatility": {"vol_regime": 0.75, "vol_score": 1.0000}
+      }
+    },
+    {
+      "rank": 4,
+      "ts_code": "600897.SH",
+      "jq_code": "600897.XSHG",
+      "scores": {"fundamentals": 0.9000, "growth": 0.9100, "technical": 0.8066, "composite": 0.8806},
+      "fundamentals": {
+        "profitability": {"roe": 0.11, "net_margin": 0.26, "op_margin": 0.35},
+        "growth": {"rev_growth": -0.2585, "np_growth": -0.0042, "bv_growth": 0.0852},
+        "health": {"current_ratio": 3.62, "debt_to_equity": 0.22, "fcf_per_share": 0.44, "eps": 0.29},
+        "valuation": {"pe": 13.90, "pb": 1.44, "ps": 3.40}
+      },
+      "growth": {
+        "growth": {"rev_growth": 0.2477, "rev_trend": 7.147, "eps_growth": 0.9542, "eps_trend": 28.681, "fcf_growth": 0.4375, "fcf_trend": 24.576},
+        "valuation": {"peg": 0.74, "ps": 3.40},
+        "margins": {"gross_margin": 0.35, "gm_trend": 3.246, "op_margin": 0.35, "om_trend": 0.341, "net_margin": 0.26, "nm_trend": 0.180},
+        "health": {"debt_to_equity": 0.22, "current_ratio": 3.62},
+        "summary": {"signal": "bullish", "confidence": 82, "score": 0.91}
+      },
+      "technical": {
+        "trend": {"adx": 41.56, "ema8": 15.13, "ema21": 15.07, "ema55": 14.74, "tf_score": 0.7078},
+        "mean_reversion": {"rsi14": 55.09, "price_vs_bb": 70.28, "mr_score": 0.7000},
+        "momentum": {"mom_3m": 0.0801, "mom_6m": 0.2423, "mom_score": 1.0000},
+        "volatility": {"vol_regime": 0.86, "vol_score": 0.7000}
+      }
+    },
+    {
+      "rank": 5,
+      "ts_code": "605183.SH",
+      "jq_code": "605183.XSHG",
+      "scores": {"fundamentals": 1.0000, "growth": 0.8100, "technical": 0.7950, "composite": 0.8728},
+      "fundamentals": {
+        "profitability": {"roe": 0.16, "net_margin": 0.21, "op_margin": 0.24},
+        "growth": {"rev_growth": -0.3497, "np_growth": -0.3889, "bv_growth": 0.1080},
+        "health": {"current_ratio": 5.11, "debt_to_equity": 0.14, "fcf_per_share": 0.27, "eps": 0.28},
+        "valuation": {"pe": 14.40, "pb": 2.20, "ps": 3.30}
+      },
+      "growth": {
+        "growth": {"rev_growth": 0.2203, "rev_trend": 2.712, "eps_growth": 0.3000, "eps_trend": 2.485, "fcf_growth": 0.6708, "fcf_trend": 4.203},
+        "valuation": {"peg": 3.94, "ps": 3.30},
+        "margins": {"gross_margin": 0.33, "gm_trend": 0.018, "op_margin": 0.26, "om_trend": 0.267, "net_margin": 0.23, "nm_trend": 0.298},
+        "health": {"debt_to_equity": 0.14, "current_ratio": 5.11},
+        "summary": {"signal": "bullish", "confidence": 62, "score": 0.81}
+      },
+      "technical": {
+        "trend": {"adx": 14.91, "ema8": 17.07, "ema21": 17.27, "ema55": 17.21, "tf_score": 0.5000},
+        "mean_reversion": {"rsi14": 42.67, "price_vs_bb": 13.29, "mr_score": 1.0000},
+        "momentum": {"mom_3m": -0.0726, "mom_6m": 0.1597, "mom_score": 0.7000},
+        "volatility": {"vol_regime": 0.66, "vol_score": 1.0000}
+      }
+    },
+    {
+      "rank": 6,
+      "ts_code": "605286.SH",
+      "jq_code": "605286.XSHG",
+      "scores": {"fundamentals": 0.8500, "growth": 0.8700, "technical": 0.9000, "composite": 0.8705},
+      "fundamentals": {
+        "profitability": {"roe": 0.16, "net_margin": 0.17, "op_margin": 0.21},
+        "growth": {"rev_growth": -0.4184, "np_growth": -0.0381, "bv_growth": 0.0923},
+        "health": {"current_ratio": 1.92, "debt_to_equity": 0.85, "fcf_per_share": 1.84, "eps": 0.58},
+        "valuation": {"pe": 17.30, "pb": 2.60, "ps": 1.74}
+      },
+      "growth": {
+        "growth": {"rev_growth": 0.1880, "rev_trend": 1.340, "eps_growth": 0.6863, "eps_trend": 12.508, "fcf_growth": 2.7890, "fcf_trend": -24.199},
+        "valuation": {"peg": 0.44, "ps": 1.74},
+        "margins": {"gross_margin": 0.22, "gm_trend": 0.836, "op_margin": 0.18, "om_trend": 0.993, "net_margin": 0.15, "nm_trend": 0.808},
+        "health": {"debt_to_equity": 0.85, "current_ratio": 1.92},
+        "summary": {"signal": "bullish", "confidence": 73, "score": 0.87}
+      },
+      "technical": {
+        "trend": {"adx": 23.97, "ema8": 31.06, "ema21": 31.40, "ema55": 29.90, "tf_score": 0.5000},
+        "mean_reversion": {"rsi14": 41.74, "price_vs_bb": -8.18, "mr_score": 1.0000},
+        "momentum": {"mom_3m": 0.2161, "mom_6m": 0.4843, "mom_score": 1.0000},
+        "volatility": {"vol_regime": 0.63, "vol_score": 1.0000}
+      }
+    },
+    {
+      "rank": 7,
+      "ts_code": "600988.SH",
+      "jq_code": "600988.XSHG",
+      "scores": {"fundamentals": 1.0000, "growth": 0.8700, "technical": 0.6900, "composite": 0.8705},
+      "fundamentals": {
+        "profitability": {"roe": 0.21, "net_margin": 0.23, "op_margin": 0.33},
+        "growth": {"rev_growth": -0.2834, "np_growth": 0.7909, "bv_growth": 0.2604},
+        "health": {"current_ratio": 1.38, "debt_to_equity": 1.42, "fcf_per_share": 0.43, "eps": 0.24},
+        "valuation": {"pe": 18.70, "pb": 3.65, "ps": 3.10}
+      },
+      "growth": {
+        "growth": {"rev_growth": 0.2230, "rev_trend": 0.156, "eps_growth": 1.4000, "eps_trend": 9.874, "fcf_growth": 0.6579, "fcf_trend": -4.536},
+        "valuation": {"peg": 0.21, "ps": 3.10},
+        "margins": {"gross_margin": 0.41, "gm_trend": 0.333, "op_margin": 0.27, "om_trend": 0.587, "net_margin": 0.19, "nm_trend": 0.224},
+        "health": {"debt_to_equity": 1.42, "current_ratio": 1.38},
+        "summary": {"signal": "bullish", "confidence": 74, "score": 0.87}
+      },
+      "technical": {
+        "trend": {"adx": 20.39, "ema8": 15.99, "ema21": 16.41, "ema55": 17.15, "tf_score": 0.5000},
+        "mean_reversion": {"rsi14": 29.36, "price_vs_bb": 6.65, "mr_score": 1.0000},
+        "momentum": {"mom_3m": -0.1313, "mom_6m": -0.1423, "mom_score": 0.4000},
+        "volatility": {"vol_regime": 0.43, "vol_score": 1.0000}
+      }
+    },
+    {
+      "rank": 8,
+      "ts_code": "600149.SH",
+      "jq_code": "600149.XSHG",
+      "scores": {"fundamentals": 1.0000, "growth": 0.7700, "technical": 0.8400, "composite": 0.8680},
+      "fundamentals": {
+        "profitability": {"roe": 0.37, "net_margin": 0.34, "op_margin": 0.35},
+        "growth": {"rev_growth": 1.3955, "np_growth": 35.2180, "bv_growth": 0.4479},
+        "health": {"current_ratio": 1.18, "debt_to_equity": 1.44, "fcf_per_share": 0.09, "eps": 0.18},
+        "valuation": {"pe": 23.10, "pb": 7.14, "ps": 4.05}
+      },
+      "growth": {
+        "growth": {"rev_growth": 0.8190, "rev_trend": 0.465, "eps_growth": 7.4633, "eps_trend": 57.057, "fcf_growth": -0.1274, "fcf_trend": -51.388},
+        "valuation": {"peg": 0.12, "ps": 4.05},
+        "margins": {"gross_margin": 0.32, "gm_trend": 0.791, "op_margin": 0.27, "om_trend": 0.884, "net_margin": 0.24, "nm_trend": 0.968},
+        "health": {"debt_to_equity": 1.44, "current_ratio": 1.18},
+        "summary": {"signal": "bullish", "confidence": 54, "score": 0.77}
+      },
+      "technical": {
+        "trend": {"adx": 34.18, "ema8": 4.28, "ema21": 4.57, "ema55": 4.54, "tf_score": 0.5000},
+        "mean_reversion": {"rsi14": 30.44, "price_vs_bb": 12.68, "mr_score": 1.0000},
+        "momentum": {"mom_3m": 0.0543, "mom_6m": 0.2952, "mom_score": 1.0000},
+        "volatility": {"vol_regime": 0.89, "vol_score": 0.7000}
+      }
+    },
+    {
+      "rank": 9,
+      "ts_code": "600423.SH",
+      "jq_code": "600423.XSHG",
+      "scores": {"fundamentals": 0.9500, "growth": 0.8600, "technical": 0.7650, "composite": 0.8678},
+      "fundamentals": {
+        "profitability": {"roe": 0.19, "net_margin": 0.30, "op_margin": 0.30},
+        "growth": {"rev_growth": -0.1035, "np_growth": 3.0053, "bv_growth": 0.2349},
+        "health": {"current_ratio": 17.27, "debt_to_equity": 0.05, "fcf_per_share": -0.01, "eps": 0.02},
+        "valuation": {"pe": 25.21, "pb": 4.25, "ps": 13.16}
+      },
+      "growth": {
+        "growth": {"rev_growth": 0.3949, "rev_trend": 0.667, "eps_growth": 3.7917, "eps_trend": 38.915, "fcf_growth": 0.5492, "fcf_trend": -3.819},
+        "valuation": {"peg": 0.35, "ps": 13.16},
+        "margins": {"gross_margin": 0.28, "gm_trend": 0.945, "op_margin": 0.27, "om_trend": 0.904, "net_margin": 0.52, "nm_trend": 3.814},
+        "health": {"debt_to_equity": 0.05, "current_ratio": 17.27},
+        "summary": {"signal": "bullish", "confidence": 72, "score": 0.86}
+      },
+      "technical": {
+        "trend": {"adx": 23.71, "ema8": 2.96, "ema21": 3.03, "ema55": 2.93, "tf_score": 0.5000},
+        "mean_reversion": {"rsi14": 45.17, "price_vs_bb": 24.80, "mr_score": 0.7000},
+        "momentum": {"mom_3m": 0.1529, "mom_6m": 0.3009, "mom_score": 1.0000},
+        "volatility": {"vol_regime": 0.95, "vol_score": 0.7000}
+      }
+    },
+    {
+      "rank": 10,
+      "ts_code": "002947.SZ",
+      "jq_code": "002947.XSHE",
+      "scores": {"fundamentals": 0.9500, "growth": 0.8400, "technical": 0.7950, "composite": 0.8672},
+      "fundamentals": {
+        "profitability": {"roe": 0.18, "net_margin": 0.19, "op_margin": 0.22},
+        "growth": {"rev_growth": -0.2578, "np_growth": -0.0629, "bv_growth": 0.5086},
+        "health": {"current_ratio": 4.47, "debt_to_equity": 0.26, "fcf_per_share": -1.38, "eps": 0.57},
+        "valuation": {"pe": 21.51, "pb": 2.84, "ps": 3.69}
+      },
+      "growth": {
+        "growth": {"rev_growth": 0.2924, "rev_trend": -5.329, "eps_growth": 0.6672, "eps_trend": 5.064, "fcf_growth": 1.5329, "fcf_trend": -45.965},
+        "valuation": {"peg": 0.46, "ps": 3.69},
+        "margins": {"gross_margin": 0.32, "gm_trend": 0.536, "op_margin": 0.19, "om_trend": 1.059, "net_margin": 0.17, "nm_trend": 1.204},
+        "health": {"debt_to_equity": 0.26, "current_ratio": 4.47},
+        "summary": {"signal": "bullish", "confidence": 67, "score": 0.84}
+      },
+      "technical": {
+        "trend": {"adx": 9.78, "ema8": 34.25, "ema21": 34.39, "ema55": 34.52, "tf_score": 0.5000},
+        "mean_reversion": {"rsi14": 44.63, "price_vs_bb": 14.81, "mr_score": 1.0000},
+        "momentum": {"mom_3m": 0.0215, "mom_6m": -0.0593, "mom_score": 0.7000},
+        "volatility": {"vol_regime": 0.67, "vol_score": 1.0000}
+      }
+    }
+  ]
+}

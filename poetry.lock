@@ -361,6 +361,25 @@ url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 reference = "tsinghua"
 
 [[package]]
+name = "backtrader"
+version = "1.9.78.123"
+description = "BackTesting Engine"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "backtrader-1.9.78.123-py2.py3-none-any.whl", hash = "sha256:9a07a516b0de9155539a35c56e9404d8711dd7020b3d37b30495e83e1b9d5dfd"},
+]
+
+[package.extras]
+plotting = ["matplotlib"]
+
+[package.source]
+type = "legacy"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+reference = "tsinghua"
+
+[[package]]
 name = "beautifulsoup4"
 version = "4.14.3"
 description = "Screen-scraping library"
@@ -6025,4 +6044,4 @@ reference = "tsinghua"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "d8920964015a914361a8b9fb638a5c8c94b545afb6d001e05a280e33b37de42c"
+content-hash = "96d7206ef2767c7323a3faf9765bac27e448bd5c1c66f56744264b36240995c9"

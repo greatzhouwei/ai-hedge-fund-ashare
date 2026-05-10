@@ -1,0 +1,1001 @@
+{
+  "date": "2025-01-02",
+  "source": "tushare",
+  "code_state": "after_diff_D_fix",
+  "weights_global": {
+    "fundamentals": 0.35,
+    "growth": 0.4,
+    "technical": 0.25
+  },
+  "weights_growth_sub": {
+    "growth": 0.5,
+    "valuation": 0.2,
+    "margins": 0.2,
+    "health": 0.1
+  },
+  "filter_universe_size": 10,
+  "industry_count": {
+    "机场": 1,
+    "通信设备": 1,
+    "路桥": 1,
+    "汽车配件": 1,
+    "食品": 1,
+    "农药化肥": 1,
+    "半导体": 1,
+    "运输设备": 1,
+    "互联网": 1,
+    "机床制造": 1
+  },
+  "stocks": [
+    {
+      "rank": 1,
+      "ts_code": "600897.SH",
+      "scores": {
+        "fundamentals": 1.0,
+        "growth": 0.89,
+        "technical": 0.8795,
+        "composite": 0.9239
+      },
+      "fundamentals": {
+        "profitability": {
+          "roe": 0.0868,
+          "net_margin": 0.2793,
+          "op_margin": 0.2793,
+          "signal": "bullish"
+        },
+        "growth": {
+          "rev_growth": 0.2477,
+          "np_growth": 0.6807,
+          "bv_growth": 0.0852,
+          "signal": "bullish"
+        },
+        "health": {
+          "current_ratio": 3.6197,
+          "debt_to_equity": 0.2159,
+          "fcf_per_share": 1.605,
+          "eps": 0.29,
+          "signal": "bullish"
+        },
+        "valuation": {
+          "pe": 13.4756,
+          "pb": 1.3965,
+          "ps": 3.2961,
+          "signal": "bullish"
+        }
+      },
+      "growth": {
+        "growth": {
+          "rev_growth": 0.2477,
+          "rev_trend": 6.638,
+          "eps_growth": 0.6839,
+          "eps_trend": -61.235,
+          "fcf_growth": 0.4375,
+          "fcf_trend": -5.343
+        },
+        "valuation": {
+          "peg": 0.4405,
+          "ps": 3.2961
+        },
+        "margins": {
+          "gross_margin": 0.3465,
+          "gm_trend": 3.597,
+          "op_margin": 0.3488,
+          "om_trend": 3.288,
+          "net_margin": 0.2446,
+          "nm_trend": 2.457
+        },
+        "health": {
+          "debt_to_equity": 0.2159,
+          "current_ratio": 3.6197
+        },
+        "sub_scores": {
+          "growth": 0.95,
+          "valuation": 0.75,
+          "margins": 0.8,
+          "health": 1.0
+        },
+        "summary": {
+          "signal": "bullish",
+          "confidence": 77,
+          "score": 0.89
+        }
+      },
+      "technical": {
+        "trend": {
+          "adx": 39.53,
+          "ema8": 15.05,
+          "ema21": 15.04,
+          "ema55": 14.74,
+          "tf_score": 0.6977
+        },
+        "mean_reversion": {
+          "rsi14": 44.6,
+          "price_vs_bb": 10.0,
+          "mr_score": 1.0
+        },
+        "momentum": {
+          "mom_3m": 0.0314,
+          "mom_6m": 0.1476,
+          "mom_score": 1.0
+        },
+        "volatility": {
+          "vol_regime": 0.9223,
+          "vol_score": 0.7
+        }
+      }
+    },
+    {
+      "rank": 2,
+      "ts_code": "002296.SZ",
+      "scores": {
+        "fundamentals": 1.0,
+        "growth": 0.95,
+        "technical": 0.735,
+        "composite": 0.9137
+      },
+      "fundamentals": {
+        "profitability": {
+          "roe": 0.0648,
+          "net_margin": 0.2834,
+          "op_margin": 0.2834,
+          "signal": "bullish"
+        },
+        "growth": {
+          "rev_growth": 0.2173,
+          "np_growth": 0.6517,
+          "bv_growth": 0.1146,
+          "signal": "bullish"
+        },
+        "health": {
+          "current_ratio": 3.0786,
+          "debt_to_equity": 0.2871,
+          "fcf_per_share": 0.4686,
+          "eps": 0.0557,
+          "signal": "bullish"
+        },
+        "valuation": {
+          "pe": 19.6295,
+          "pb": 1.7076,
+          "ps": 4.8144,
+          "signal": "bullish"
+        }
+      },
+      "growth": {
+        "growth": {
+          "rev_growth": 0.2173,
+          "rev_trend": 16.99,
+          "eps_growth": 0.6397,
+          "eps_trend": 30.376,
+          "fcf_growth": 0.2302,
+          "fcf_trend": 9.52
+        },
+        "valuation": {
+          "peg": 0.1597,
+          "ps": 4.8144
+        },
+        "margins": {
+          "gross_margin": 0.5035,
+          "gm_trend": 0.873,
+          "op_margin": 0.2631,
+          "om_trend": 1.598,
+          "net_margin": 0.2453,
+          "nm_trend": 1.421
+        },
+        "health": {
+          "debt_to_equity": 0.2871,
+          "current_ratio": 3.0786
+        },
+        "sub_scores": {
+          "growth": 1.0,
+          "valuation": 0.75,
+          "margins": 1.0,
+          "health": 1.0
+        },
+        "summary": {
+          "signal": "bullish",
+          "confidence": 90,
+          "score": 0.95
+        }
+      },
+      "technical": {
+        "trend": {
+          "adx": 25.09,
+          "ema8": 9.99,
+          "ema21": 10.2,
+          "ema55": 9.84,
+          "tf_score": 0.5
+        },
+        "mean_reversion": {
+          "rsi14": 41.91,
+          "price_vs_bb": 10.84,
+          "mr_score": 1.0
+        },
+        "momentum": {
+          "mom_3m": 0.0786,
+          "mom_6m": -0.0257,
+          "mom_score": 0.7
+        },
+        "volatility": {
+          "vol_regime": 1.0609,
+          "vol_score": 0.7
+        }
+      }
+    },
+    {
+      "rank": 3,
+      "ts_code": "000548.SZ",
+      "scores": {
+        "fundamentals": 1.0,
+        "growth": 0.82,
+        "technical": 0.9,
+        "composite": 0.903
+      },
+      "fundamentals": {
+        "profitability": {
+          "roe": 0.0454,
+          "net_margin": 0.1785,
+          "op_margin": 0.1785,
+          "signal": "neutral"
+        },
+        "growth": {
+          "rev_growth": 1.9292,
+          "np_growth": 1.1762,
+          "bv_growth": 0.0668,
+          "signal": "bullish"
+        },
+        "health": {
+          "current_ratio": 3.3105,
+          "debt_to_equity": 0.3518,
+          "fcf_per_share": 0.0968,
+          "eps": 0.054,
+          "signal": "bullish"
+        },
+        "valuation": {
+          "pe": 14.8409,
+          "pb": 1.2511,
+          "ps": 1.7755,
+          "signal": "bullish"
+        }
+      },
+      "growth": {
+        "growth": {
+          "rev_growth": 1.9292,
+          "rev_trend": 43.691,
+          "eps_growth": 1.1867,
+          "eps_trend": 8.93,
+          "fcf_growth": -0.9096,
+          "fcf_trend": -164.001
+        },
+        "valuation": {
+          "peg": 0.1701,
+          "ps": 1.7755
+        },
+        "margins": {
+          "gross_margin": 0.3023,
+          "gm_trend": -0.932,
+          "op_margin": 0.1689,
+          "om_trend": 0.81,
+          "net_margin": 0.1196,
+          "nm_trend": 0.765
+        },
+        "health": {
+          "debt_to_equity": 0.3518,
+          "current_ratio": 3.3105
+        },
+        "sub_scores": {
+          "growth": 0.8,
+          "valuation": 1.0,
+          "margins": 0.6,
+          "health": 1.0
+        },
+        "summary": {
+          "signal": "bullish",
+          "confidence": 64,
+          "score": 0.82
+        }
+      },
+      "technical": {
+        "trend": {
+          "adx": 28.91,
+          "ema8": 5.28,
+          "ema21": 5.47,
+          "ema55": 5.34,
+          "tf_score": 0.5
+        },
+        "mean_reversion": {
+          "rsi14": 37.93,
+          "price_vs_bb": 15.48,
+          "mr_score": 1.0
+        },
+        "momentum": {
+          "mom_3m": 0.0599,
+          "mom_6m": 0.302,
+          "mom_score": 1.0
+        },
+        "volatility": {
+          "vol_regime": 0.6999,
+          "vol_score": 1.0
+        }
+      }
+    },
+    {
+      "rank": 4,
+      "ts_code": "600933.SH",
+      "scores": {
+        "fundamentals": 0.95,
+        "growth": 0.89,
+        "technical": 0.84,
+        "composite": 0.8965
+      },
+      "fundamentals": {
+        "profitability": {
+          "roe": 0.103,
+          "net_margin": 0.1549,
+          "op_margin": 0.1549,
+          "signal": "neutral"
+        },
+        "growth": {
+          "rev_growth": 0.2235,
+          "np_growth": 0.2609,
+          "bv_growth": 0.3498,
+          "signal": "bullish"
+        },
+        "health": {
+          "current_ratio": 2.1139,
+          "debt_to_equity": 0.7294,
+          "fcf_per_share": 0.1042,
+          "eps": 0.3,
+          "signal": "neutral"
+        },
+        "valuation": {
+          "pe": 14.3503,
+          "pb": 1.8958,
+          "ps": 2.2662,
+          "signal": "bullish"
+        }
+      },
+      "growth": {
+        "growth": {
+          "rev_growth": 0.2235,
+          "rev_trend": 5.869,
+          "eps_growth": 0.2128,
+          "eps_trend": -1.038,
+          "fcf_growth": 0.5684,
+          "fcf_trend": 8.551
+        },
+        "valuation": {
+          "peg": 0.9199,
+          "ps": 2.2662
+        },
+        "margins": {
+          "gross_margin": 0.2914,
+          "gm_trend": 0.431,
+          "op_margin": 0.1813,
+          "om_trend": 0.575,
+          "net_margin": 0.1579,
+          "nm_trend": 0.429
+        },
+        "health": {
+          "debt_to_equity": 0.7294,
+          "current_ratio": 2.1139
+        },
+        "sub_scores": {
+          "growth": 0.95,
+          "valuation": 0.75,
+          "margins": 0.8,
+          "health": 1.0
+        },
+        "summary": {
+          "signal": "bullish",
+          "confidence": 77,
+          "score": 0.89
+        }
+      },
+      "technical": {
+        "trend": {
+          "adx": 32.42,
+          "ema8": 16.78,
+          "ema21": 16.85,
+          "ema55": 16.06,
+          "tf_score": 0.5
+        },
+        "mean_reversion": {
+          "rsi14": 38.66,
+          "price_vs_bb": 4.04,
+          "mr_score": 1.0
+        },
+        "momentum": {
+          "mom_3m": 0.0391,
+          "mom_6m": 0.1151,
+          "mom_score": 1.0
+        },
+        "volatility": {
+          "vol_regime": 0.9423,
+          "vol_score": 0.7
+        }
+      }
+    },
+    {
+      "rank": 5,
+      "ts_code": "003000.SZ",
+      "scores": {
+        "fundamentals": 1.0,
+        "growth": 0.91,
+        "technical": 0.7194,
+        "composite": 0.8938
+      },
+      "fundamentals": {
+        "profitability": {
+          "roe": 0.1621,
+          "net_margin": 0.1224,
+          "op_margin": 0.1224,
+          "signal": "neutral"
+        },
+        "growth": {
+          "rev_growth": 0.2048,
+          "np_growth": 0.738,
+          "bv_growth": 0.0796,
+          "signal": "bullish"
+        },
+        "health": {
+          "current_ratio": 2.1986,
+          "debt_to_equity": 0.4591,
+          "fcf_per_share": 0.4124,
+          "eps": 0.1603,
+          "signal": "bullish"
+        },
+        "valuation": {
+          "pe": 21.9502,
+          "pb": 4.7611,
+          "ps": 2.7262,
+          "signal": "bullish"
+        }
+      },
+      "growth": {
+        "growth": {
+          "rev_growth": 0.2048,
+          "rev_trend": 4.479,
+          "eps_growth": 0.6804,
+          "eps_trend": 17.122,
+          "fcf_growth": 2.6576,
+          "fcf_trend": 105.779
+        },
+        "valuation": {
+          "peg": 0.3011,
+          "ps": 2.7262
+        },
+        "margins": {
+          "gross_margin": 0.3085,
+          "gm_trend": 0.36,
+          "op_margin": 0.1515,
+          "om_trend": 0.627,
+          "net_margin": 0.1242,
+          "nm_trend": 0.463
+        },
+        "health": {
+          "debt_to_equity": 0.4591,
+          "current_ratio": 2.1986
+        },
+        "sub_scores": {
+          "growth": 1.0,
+          "valuation": 0.75,
+          "margins": 0.8,
+          "health": 1.0
+        },
+        "summary": {
+          "signal": "bullish",
+          "confidence": 82,
+          "score": 0.91
+        }
+      },
+      "technical": {
+        "trend": {
+          "adx": 29.36,
+          "ema8": 13.81,
+          "ema21": 13.54,
+          "ema55": 13.07,
+          "tf_score": 0.6468
+        },
+        "mean_reversion": {
+          "rsi14": 58.58,
+          "price_vs_bb": 83.42,
+          "mr_score": 0.4
+        },
+        "momentum": {
+          "mom_3m": 0.0842,
+          "mom_6m": 0.1105,
+          "mom_score": 1.0
+        },
+        "volatility": {
+          "vol_regime": 0.988,
+          "vol_score": 0.7
+        }
+      }
+    },
+    {
+      "rank": 6,
+      "ts_code": "600423.SH",
+      "scores": {
+        "fundamentals": 1.0,
+        "growth": 0.86,
+        "technical": 0.765,
+        "composite": 0.8852
+      },
+      "fundamentals": {
+        "profitability": {
+          "roe": 0.0585,
+          "net_margin": 0.2519,
+          "op_margin": 0.2519,
+          "signal": "bullish"
+        },
+        "growth": {
+          "rev_growth": 0.3949,
+          "np_growth": 3.8133,
+          "bv_growth": 0.2349,
+          "signal": "bullish"
+        },
+        "health": {
+          "current_ratio": 17.2702,
+          "debt_to_equity": 0.0548,
+          "fcf_per_share": 0.0393,
+          "eps": 0.019,
+          "signal": "bullish"
+        },
+        "valuation": {
+          "pe": 24.9517,
+          "pb": 4.2071,
+          "ps": 13.0251,
+          "signal": "neutral"
+        }
+      },
+      "growth": {
+        "growth": {
+          "rev_growth": 0.3949,
+          "rev_trend": 19.299,
+          "eps_growth": 3.7917,
+          "eps_trend": 148.233,
+          "fcf_growth": 0.2229,
+          "fcf_trend": 3.129
+        },
+        "valuation": {
+          "peg": 0.1441,
+          "ps": 13.0251
+        },
+        "margins": {
+          "gross_margin": 0.2822,
+          "gm_trend": 0.404,
+          "op_margin": 0.2697,
+          "om_trend": 0.09,
+          "net_margin": 0.522,
+          "nm_trend": 0.943
+        },
+        "health": {
+          "debt_to_equity": 0.0548,
+          "current_ratio": 17.2702
+        },
+        "sub_scores": {
+          "growth": 1.0,
+          "valuation": 0.5,
+          "margins": 0.8,
+          "health": 1.0
+        },
+        "summary": {
+          "signal": "bullish",
+          "confidence": 72,
+          "score": 0.86
+        }
+      },
+      "technical": {
+        "trend": {
+          "adx": 22.95,
+          "ema8": 2.95,
+          "ema21": 3.02,
+          "ema55": 2.93,
+          "tf_score": 0.5
+        },
+        "mean_reversion": {
+          "rsi14": 43.65,
+          "price_vs_bb": 23.32,
+          "mr_score": 0.7
+        },
+        "momentum": {
+          "mom_3m": 0.1149,
+          "mom_6m": 0.2819,
+          "mom_score": 1.0
+        },
+        "volatility": {
+          "vol_regime": 0.9395,
+          "vol_score": 0.7
+        }
+      }
+    },
+    {
+      "rank": 7,
+      "ts_code": "002371.SZ",
+      "scores": {
+        "fundamentals": 1.0,
+        "growth": 0.84,
+        "technical": 0.795,
+        "composite": 0.8848
+      },
+      "fundamentals": {
+        "profitability": {
+          "roe": 0.1671,
+          "net_margin": 0.2191,
+          "op_margin": 0.2191,
+          "signal": "bullish"
+        },
+        "growth": {
+          "rev_growth": 0.4454,
+          "np_growth": 0.5426,
+          "bv_growth": 0.2862,
+          "signal": "bullish"
+        },
+        "health": {
+          "current_ratio": 2.0808,
+          "debt_to_equity": 1.1555,
+          "fcf_per_share": 0.4706,
+          "eps": 3.1616,
+          "signal": "neutral"
+        },
+        "valuation": {
+          "pe": 36.6356,
+          "pb": 6.9117,
+          "ps": 7.2069,
+          "signal": "bearish"
+        }
+      },
+      "growth": {
+        "growth": {
+          "rev_growth": 0.4454,
+          "rev_trend": 9.02,
+          "eps_growth": 0.5376,
+          "eps_trend": 3.469,
+          "fcf_growth": 1.8112,
+          "fcf_trend": 5.78
+        },
+        "valuation": {
+          "peg": 0.5949,
+          "ps": 7.2069
+        },
+        "margins": {
+          "gross_margin": 0.4405,
+          "gm_trend": 0.051,
+          "op_margin": 0.2197,
+          "om_trend": 0.982,
+          "net_margin": 0.1967,
+          "nm_trend": 1.027
+        },
+        "health": {
+          "debt_to_equity": 1.1555,
+          "current_ratio": 2.0808
+        },
+        "sub_scores": {
+          "growth": 1.0,
+          "valuation": 0.5,
+          "margins": 0.8,
+          "health": 0.8
+        },
+        "summary": {
+          "signal": "bullish",
+          "confidence": 68,
+          "score": 0.84
+        }
+      },
+      "technical": {
+        "trend": {
+          "adx": 15.5,
+          "ema8": 396.58,
+          "ema21": 400.86,
+          "ema55": 395.39,
+          "tf_score": 0.5
+        },
+        "mean_reversion": {
+          "rsi14": 38.22,
+          "price_vs_bb": -0.03,
+          "mr_score": 1.0
+        },
+        "momentum": {
+          "mom_3m": -0.0306,
+          "mom_6m": 0.1589,
+          "mom_score": 0.7
+        },
+        "volatility": {
+          "vol_regime": 0.6565,
+          "vol_score": 1.0
+        }
+      }
+    },
+    {
+      "rank": 8,
+      "ts_code": "605286.SH",
+      "scores": {
+        "fundamentals": 1.0,
+        "growth": 0.77,
+        "technical": 0.9,
+        "composite": 0.881
+      },
+      "fundamentals": {
+        "profitability": {
+          "roe": 0.1571,
+          "net_margin": 0.1005,
+          "op_margin": 0.1811,
+          "signal": "bullish"
+        },
+        "growth": {
+          "rev_growth": 0.188,
+          "np_growth": 0.6405,
+          "bv_growth": 0.0972,
+          "signal": "neutral"
+        },
+        "health": {
+          "current_ratio": 1.7587,
+          "debt_to_equity": 0.9519,
+          "fcf_per_share": 1.7236,
+          "eps": 0.6,
+          "signal": "bullish"
+        },
+        "valuation": {
+          "pe": 16.9526,
+          "pb": 2.55,
+          "ps": 1.7039,
+          "signal": "bullish"
+        }
+      },
+      "growth": {
+        "growth": {
+          "rev_growth": 0.188,
+          "rev_trend": 12.81,
+          "eps_growth": 0.6863,
+          "eps_trend": 22.16,
+          "fcf_growth": 2.2595,
+          "fcf_trend": -27.715
+        },
+        "valuation": {
+          "peg": null,
+          "ps": 1.7039
+        },
+        "margins": {
+          "gross_margin": 0.2233,
+          "gm_trend": 1.039,
+          "op_margin": 0.1811,
+          "om_trend": 1.064,
+          "net_margin": 0.1005,
+          "nm_trend": 0.416
+        },
+        "health": {
+          "debt_to_equity": 0.9519,
+          "current_ratio": 1.7587
+        },
+        "sub_scores": {
+          "growth": 0.85,
+          "valuation": 0.5,
+          "margins": 0.8,
+          "health": 0.8
+        },
+        "summary": {
+          "signal": "bullish",
+          "confidence": 53,
+          "score": 0.77
+        }
+      },
+      "technical": {
+        "trend": {
+          "adx": 23.67,
+          "ema8": 30.73,
+          "ema21": 31.23,
+          "ema55": 29.9,
+          "tf_score": 0.5
+        },
+        "mean_reversion": {
+          "rsi14": 38.31,
+          "price_vs_bb": -11.03,
+          "mr_score": 1.0
+        },
+        "momentum": {
+          "mom_3m": 0.1619,
+          "mom_6m": 0.4103,
+          "mom_score": 1.0
+        },
+        "volatility": {
+          "vol_regime": 0.6426,
+          "vol_score": 1.0
+        }
+      }
+    },
+    {
+      "rank": 9,
+      "ts_code": "002517.SZ",
+      "scores": {
+        "fundamentals": 1.0,
+        "growth": 0.76,
+        "technical": 0.9,
+        "composite": 0.879
+      },
+      "fundamentals": {
+        "profitability": {
+          "roe": 0.2265,
+          "net_margin": 0.326,
+          "op_margin": 0.326,
+          "signal": "bullish"
+        },
+        "growth": {
+          "rev_growth": 0.3216,
+          "np_growth": 0.3903,
+          "bv_growth": 0.1524,
+          "signal": "bullish"
+        },
+        "health": {
+          "current_ratio": 3.3499,
+          "debt_to_equity": 0.2659,
+          "fcf_per_share": 0.6355,
+          "eps": 0.22,
+          "signal": "bullish"
+        },
+        "valuation": {
+          "pe": 17.109,
+          "pb": 4.6874,
+          "ps": 5.4668,
+          "signal": "neutral"
+        }
+      },
+      "growth": {
+        "growth": {
+          "rev_growth": 0.3216,
+          "rev_trend": 12.991,
+          "eps_growth": 0.386,
+          "eps_trend": 10.666,
+          "fcf_growth": 0.1107,
+          "fcf_trend": 10.806
+        },
+        "valuation": {
+          "peg": 0.7302,
+          "ps": 5.4668
+        },
+        "margins": {
+          "gross_margin": 0.8226,
+          "gm_trend": 1.328,
+          "op_margin": 0.3389,
+          "om_trend": -0.321,
+          "net_margin": 0.3195,
+          "nm_trend": 0.728
+        },
+        "health": {
+          "debt_to_equity": 0.2659,
+          "current_ratio": 3.3499
+        },
+        "sub_scores": {
+          "growth": 0.8,
+          "valuation": 0.5,
+          "margins": 0.8,
+          "health": 1.0
+        },
+        "summary": {
+          "signal": "bullish",
+          "confidence": 52,
+          "score": 0.76
+        }
+      },
+      "technical": {
+        "trend": {
+          "adx": 22.38,
+          "ema8": 13.72,
+          "ema21": 13.73,
+          "ema55": 13.15,
+          "tf_score": 0.5
+        },
+        "mean_reversion": {
+          "rsi14": 43.13,
+          "price_vs_bb": -11.61,
+          "mr_score": 1.0
+        },
+        "momentum": {
+          "mom_3m": 0.145,
+          "mom_6m": 0.4463,
+          "mom_score": 1.0
+        },
+        "volatility": {
+          "vol_regime": 0.7445,
+          "vol_score": 1.0
+        }
+      }
+    },
+    {
+      "rank": 10,
+      "ts_code": "003025.SZ",
+      "scores": {
+        "fundamentals": 1.0,
+        "growth": 0.82,
+        "technical": 0.795,
+        "composite": 0.8767
+      },
+      "fundamentals": {
+        "profitability": {
+          "roe": 0.1396,
+          "net_margin": 0.3279,
+          "op_margin": 0.3279,
+          "signal": "bullish"
+        },
+        "growth": {
+          "rev_growth": 0.382,
+          "np_growth": 0.9112,
+          "bv_growth": 0.1269,
+          "signal": "bullish"
+        },
+        "health": {
+          "current_ratio": 3.5165,
+          "debt_to_equity": 0.1919,
+          "fcf_per_share": 0.3045,
+          "eps": 0.14,
+          "signal": "bullish"
+        },
+        "valuation": {
+          "pe": 17.4921,
+          "pb": 2.8191,
+          "ps": 5.1016,
+          "signal": "bullish"
+        }
+      },
+      "growth": {
+        "growth": {
+          "rev_growth": 0.382,
+          "rev_trend": 19.639,
+          "eps_growth": 0.6596,
+          "eps_trend": 35.613,
+          "fcf_growth": 2.9777,
+          "fcf_trend": 77.464
+        },
+        "valuation": {
+          "peg": 0.3208,
+          "ps": 5.1016
+        },
+        "margins": {
+          "gross_margin": 0.3817,
+          "gm_trend": -0.269,
+          "op_margin": 0.3425,
+          "om_trend": 0.075,
+          "net_margin": 0.2917,
+          "nm_trend": 0.1
+        },
+        "health": {
+          "debt_to_equity": 0.1919,
+          "current_ratio": 3.5165
+        },
+        "sub_scores": {
+          "growth": 1.0,
+          "valuation": 0.5,
+          "margins": 0.6,
+          "health": 1.0
+        },
+        "summary": {
+          "signal": "bullish",
+          "confidence": 64,
+          "score": 0.82
+        }
+      },
+      "technical": {
+        "trend": {
+          "adx": 20.32,
+          "ema8": 14.36,
+          "ema21": 14.81,
+          "ema55": 14.79,
+          "tf_score": 0.5
+        },
+        "mean_reversion": {
+          "rsi14": 33.1,
+          "price_vs_bb": 3.12,
+          "mr_score": 1.0
+        },
+        "momentum": {
+          "mom_3m": -0.0813,
+          "mom_6m": 0.1692,
+          "mom_score": 0.7
+        },
+        "volatility": {
+          "vol_regime": 0.7116,
+          "vol_score": 1.0
+        }
+      }
+    }
+  ]
+}
