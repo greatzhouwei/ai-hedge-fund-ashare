@@ -20,7 +20,7 @@ def rsi(series: pd.Series, period: int = 14) -> pd.Series:
 
 def bbands(series: pd.Series, period: int = 20, nbdev: float = 2.0):
     middle = series.rolling(window=period, min_periods=period).mean()
-    std = series.rolling(window=period, min_periods=period).std()
+    std = series.rolling(window=period, min_periods=period).std(ddof=0)
     upper = middle + nbdev * std
     lower = middle - nbdev * std
     return upper, middle, lower

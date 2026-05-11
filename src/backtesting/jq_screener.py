@@ -60,8 +60,8 @@ def score_fundamentals(
     adapter: JQDataAdapter, tickers: list[str], date: str
 ) -> tuple[dict[str, float], dict[str, dict]]:
     # Raw data for manual TTM calculations
-    income = adapter.get_income_history(tickers, date, limit=12)
-    cashflow = adapter.get_cashflow_history(tickers, date, limit=12)
+    income = adapter.get_income_history(tickers, date, limit=24)
+    cashflow = adapter.get_cashflow_history(tickers, date, limit=24)
     balance = adapter.get_balance_history(tickers, date, limit=5)
     # Indicator for ROE and margins (need 5 periods to derive 4 quarterly ROEs)
     fina = adapter.get_fina_indicator_history(tickers, date, limit=5)
@@ -93,20 +93,20 @@ def score_fundamentals(
             op_margin = _pct(row_f, "profit_to_gr")
 
         if roe is None and df_inc is not None and not df_inc.empty and df_bal is not None and not df_bal.empty:
-            np_ttm_vals = _ttm_series(df_inc, "n_income_attr_p")
+            np_ttm_vals = _ttm_series(df_inc, "n_income")
             eq = df_bal.iloc[0].get("total_hldr_eqy_exc_min_int")
             if np_ttm_vals and pd.notna(eq) and eq != 0:
                 roe = np_ttm_vals[0] / float(eq)
 
         if net_margin is None and df_inc is not None and not df_inc.empty:
-            np_ttm_vals = _ttm_series(df_inc, "n_income_attr_p")
+            np_ttm_vals = _ttm_series(df_inc, "n_income")
             rev_ttm_vals = _ttm_series(df_inc, "revenue")
             if np_ttm_vals and rev_ttm_vals and abs(rev_ttm_vals[0]) > 1e-9:
                 net_margin = np_ttm_vals[0] / rev_ttm_vals[0]
 
         # --- Growth: manual TTM ---
         rev_growth = _ttm_yoy(df_inc, "total_revenue") if df_inc is not None else None
-        np_growth = _ttm_yoy(df_inc, "n_income_attr_p") if df_inc is not None else None
+        np_growth = _ttm_yoy(df_inc, "n_income") if df_inc is not None else None
         bv_growth = _bv_growth(df_bal) if df_bal is not None else None
 
         # --- Health ratios from balance sheet ---
@@ -409,8 +409,8 @@ def score_growth(
     adapter: JQDataAdapter, tickers: list[str], date: str
 ) -> tuple[dict[str, float], dict[str, dict]]:
     # Raw financial data for TTM calculation
-    income = adapter.get_income_history(tickers, date, limit=12)
-    cashflow = adapter.get_cashflow_history(tickers, date, limit=12)
+    income = adapter.get_income_history(tickers, date, limit=24)
+    cashflow = adapter.get_cashflow_history(tickers, date, limit=24)
     balance = adapter.get_balance_history(tickers, date, limit=5)
     # Fallback data from fina_indicator
     fina = adapter.get_fina_indicator_history(tickers, date, limit=12)
@@ -446,27 +446,22 @@ def score_growth(
         gm_hist, om_hist, nm_hist = [], [], []
 
         if df_inc is not None and not df_inc.empty:
-            # History from cumulative data
-            for i in range(len(df_inc)):
-                row = df_inc.iloc[i]
-                rev = row.get("revenue")
-                cost = row.get("oper_cost")
-                op = row.get("operate_profit")
-                np_val = row.get("n_income_attr_p")
-                if pd.notna(rev) and abs(float(rev)) > 1e-9:
-                    if pd.notna(cost):
-                        gm_hist.append((float(rev) - float(cost)) / float(rev))
-                    if pd.notna(op):
-                        om_hist.append(float(op) / float(rev))
-                    if pd.notna(np_val):
-                        nm_hist.append(float(np_val) / float(rev))
-            # Latest from TTM
+            # Margins from TTM (matching JQ which uses TTM margins for trends)
             rev_ttm_vals = _ttm_series(df_inc, "revenue")
             cost_ttm_vals = _ttm_series(df_inc, "oper_cost")
             op_ttm_vals = _ttm_series(df_inc, "operate_profit")
-            np_ttm_vals = _ttm_series(df_inc, "n_income_attr_p")
+            np_ttm_vals = _ttm_series(df_inc, "n_income")
             if rev_ttm_vals:
                 rev_latest = rev_ttm_vals[0]
+                for i in range(len(rev_ttm_vals)):
+                    rev = rev_ttm_vals[i]
+                    if abs(rev) > 1e-9:
+                        if cost_ttm_vals and i < len(cost_ttm_vals):
+                            gm_hist.append((rev - cost_ttm_vals[i]) / rev)
+                        if op_ttm_vals and i < len(op_ttm_vals):
+                            om_hist.append(op_ttm_vals[i] / rev)
+                        if np_ttm_vals and i < len(np_ttm_vals):
+                            nm_hist.append(np_ttm_vals[i] / rev)
                 if cost_ttm_vals and abs(rev_latest) > 1e-9:
                     gm = (rev_latest - cost_ttm_vals[0]) / rev_latest
                 if op_ttm_vals and abs(rev_latest) > 1e-9:
@@ -621,6 +616,38 @@ def score_growth(
         }
 
     return scores, details
+
+
+def _hurst_rs(ts):
+    """重标极差法 (R/S)"""
+    ts = np.array(ts)
+    n = len(ts)
+    lags = [2**i for i in range(1, int(np.log2(n)))]
+    rs_vals = []
+    for lag in lags:
+        if lag >= n:
+            break
+        k = n // lag
+        rs_sub = []
+        for i in range(k):
+            sub = ts[i*lag:(i+1)*lag]
+            if len(sub) < 2:
+                continue
+            mean_sub = np.mean(sub)
+            dev = sub - mean_sub
+            cumdev = np.cumsum(dev)
+            r = np.max(cumdev) - np.min(cumdev)
+            s = np.std(sub)
+            if s != 0:
+                rs_sub.append(r / s)
+        if rs_sub:
+            rs_vals.append(np.mean(rs_sub))
+    if len(rs_vals) < 2:
+        return np.nan
+    log_lags = np.log(lags[:len(rs_vals)])
+    log_rs = np.log(rs_vals)
+    slope, _ = np.polyfit(log_lags, log_rs, 1)
+    return slope
 
 
 # ==================== 3. 技术面打分 ====================

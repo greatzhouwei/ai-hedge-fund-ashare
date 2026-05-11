@@ -112,6 +112,7 @@ class JQDataAdapter:
                 "total_revenue",
                 "revenue",
                 "n_income_attr_p",
+                "n_income",
                 "operate_profit",
                 "basic_eps",
                 "oper_cost",
@@ -187,6 +188,21 @@ class JQDataAdapter:
         date_num = self.to_yyyymmdd(date)
         batch_size = 500
         all_dfs: list[pd.DataFrame] = []
+
+        # Fallback to most recent trading day if exact date has no data
+        effective_date = date_num
+        check = self.conn.execute(
+            "SELECT trade_date FROM daily_basic WHERE trade_date = ? LIMIT 1",
+            [date_num],
+        ).fetchone()
+        if check is None:
+            fallback = self.conn.execute(
+                "SELECT MAX(trade_date) FROM daily_basic WHERE trade_date <= ?",
+                [date_num],
+            ).fetchone()
+            if fallback and fallback[0]:
+                effective_date = fallback[0]
+
         for i in range(0, len(tickers), batch_size):
             batch = tickers[i : i + batch_size]
             placeholders = ",".join(["?" for _ in batch])
@@ -196,12 +212,68 @@ class JQDataAdapter:
             WHERE ts_code IN ({placeholders})
               AND trade_date = ?
             """
-            df = self.conn.execute(query, batch + [date_num]).fetchdf()
+            df = self.conn.execute(query, batch + [effective_date]).fetchdf()
             if not df.empty:
                 all_dfs.append(df)
         if not all_dfs:
             return pd.DataFrame()
         return pd.concat(all_dfs, ignore_index=True)
+
+    def _apply_qfq(self, df: pd.DataFrame, end_date_num: str) -> pd.DataFrame:
+        """用 adj_factor 将不复权价格转为前复权价格."""
+        if df.empty:
+            return df
+
+        tickers = df["ts_code"].unique().tolist()
+        batch_size = 500
+        all_adj: list[pd.DataFrame] = []
+        for i in range(0, len(tickers), batch_size):
+            batch = tickers[i : i + batch_size]
+            placeholders = ",".join(["?" for _ in batch])
+            query = f"""
+            SELECT ts_code, trade_date, adj_factor
+            FROM adj_factor
+            WHERE ts_code IN ({placeholders})
+              AND trade_date <= ?
+            """
+            adj_df = self.conn.execute(query, batch + [end_date_num]).fetchdf()
+            if not adj_df.empty:
+                all_adj.append(adj_df)
+
+        if not all_adj:
+            return df
+
+        adj_combined = pd.concat(all_adj, ignore_index=True)
+
+        # 每只股票在 end_date 的基准 adj_factor
+        base_adj = (
+            adj_combined.groupby("ts_code")["trade_date"]
+            .max()
+            .reset_index()
+            .merge(adj_combined, on=["ts_code", "trade_date"], how="left")
+            .rename(columns={"adj_factor": "base_factor"})
+        )
+
+        df = df.merge(
+            adj_combined,
+            left_on=["ts_code", "trade_date"],
+            right_on=["ts_code", "trade_date"],
+            how="left",
+        )
+        df = df.merge(
+            base_adj[["ts_code", "base_factor"]], on="ts_code", how="left"
+        )
+
+        mask = (
+            df["adj_factor"].notna()
+            & df["base_factor"].notna()
+            & (df["base_factor"] != 0)
+        )
+        ratio = df.loc[mask, "adj_factor"] / df.loc[mask, "base_factor"]
+        for col in ["open", "high", "low", "close"]:
+            df.loc[mask, col] = df.loc[mask, col] * ratio
+
+        return df.drop(columns=["adj_factor", "base_factor"], errors="ignore")
 
     def get_prices(
         self, tickers: list[str], end_date: str, count: int = 130
@@ -229,6 +301,7 @@ class JQDataAdapter:
         if not all_dfs:
             return pd.DataFrame()
         combined = pd.concat(all_dfs, ignore_index=True)
+        combined = self._apply_qfq(combined, date_num)
         combined["trade_date"] = pd.to_datetime(
             combined["trade_date"], format="%Y%m%d"
         )
