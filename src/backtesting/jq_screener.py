@@ -63,8 +63,8 @@ def score_fundamentals(
     income = adapter.get_income_history(tickers, date, limit=12)
     cashflow = adapter.get_cashflow_history(tickers, date, limit=12)
     balance = adapter.get_balance_history(tickers, date, limit=5)
-    # Indicator for ROE and margins
-    fina = adapter.get_fina_indicator_history(tickers, date, limit=1)
+    # Indicator for ROE and margins (need 5 periods to derive 4 quarterly ROEs)
+    fina = adapter.get_fina_indicator_history(tickers, date, limit=5)
     val = adapter.get_valuation(tickers, date)
     val_dict = {r["ts_code"]: r for _, r in val.iterrows()} if not val.empty else {}
 
@@ -80,9 +80,17 @@ def score_fundamentals(
 
         # --- Profitability: fina_indicator with raw-data fallback ---
         row_f = df_f.iloc[0] if df_f is not None and not df_f.empty else None
-        roe = _pct(row_f, "roe") if row_f is not None else None
+        roe = _roe_ttm(df_f)
         net_margin = _pct(row_f, "netprofit_margin") if row_f is not None else None
-        op_margin = _pct(row_f, "profit_to_gr") if row_f is not None else None
+        op_margin = None
+
+        if df_inc is not None and not df_inc.empty:
+            op_ttm_vals = _ttm_series(df_inc, "operate_profit")
+            rev_ttm_vals = _ttm_series(df_inc, "revenue")
+            if op_ttm_vals and rev_ttm_vals and abs(rev_ttm_vals[0]) > 1e-9:
+                op_margin = op_ttm_vals[0] / rev_ttm_vals[0]
+        if op_margin is None and row_f is not None:
+            op_margin = _pct(row_f, "profit_to_gr")
 
         if roe is None and df_inc is not None and not df_inc.empty and df_bal is not None and not df_bal.empty:
             np_ttm_vals = _ttm_series(df_inc, "n_income_attr_p")
@@ -95,12 +103,6 @@ def score_fundamentals(
             rev_ttm_vals = _ttm_series(df_inc, "revenue")
             if np_ttm_vals and rev_ttm_vals and abs(rev_ttm_vals[0]) > 1e-9:
                 net_margin = np_ttm_vals[0] / rev_ttm_vals[0]
-
-        if op_margin is None and df_inc is not None and not df_inc.empty:
-            op_ttm_vals = _ttm_series(df_inc, "operate_profit")
-            rev_ttm_vals = _ttm_series(df_inc, "revenue")
-            if op_ttm_vals and rev_ttm_vals and abs(rev_ttm_vals[0]) > 1e-9:
-                op_margin = op_ttm_vals[0] / rev_ttm_vals[0]
 
         # --- Growth: manual TTM ---
         rev_growth = _ttm_yoy(df_inc, "total_revenue") if df_inc is not None else None
@@ -811,6 +813,37 @@ def _pct(row: pd.Series | None, col: str) -> float | None:
     """Read a percentage column and convert to decimal (e.g. 15.2 -> 0.152)."""
     v = _f(row, col)
     return v / 100.0 if v is not None else None
+
+
+def _roe_ttm(df_f: pd.DataFrame | None) -> float | None:
+    """Calculate TTM ROE from fina_indicator cumulative ROE values.
+
+    Tushare fina_indicator.roe is cumulative (year-to-date for quarterly
+    reports).  We decompose into single-quarter ROE and sum the latest 4.
+    """
+    if df_f is None or df_f.empty:
+        return None
+    df = df_f.copy()
+    df["end_date"] = df["end_date"].astype(str)
+    df = df.sort_values("end_date", ascending=True).reset_index(drop=True)
+
+    quarterly_roes: list[float] = []
+    for i, row in df.iterrows():
+        roe = _pct(row, "roe")
+        if roe is None:
+            continue
+        curr_year = str(row["end_date"])[:4]
+        prev_roe = None
+        for j in range(i - 1, -1, -1):
+            if str(df.iloc[j]["end_date"])[:4] == curr_year:
+                prev_roe = _pct(df.iloc[j], "roe")
+                break
+        sq_roe = roe - prev_roe if prev_roe is not None else roe
+        quarterly_roes.append(sq_roe)
+
+    if len(quarterly_roes) >= 4:
+        return sum(quarterly_roes[-4:])
+    return None
 
 
 def _f_row(df: pd.DataFrame, idx: int, col: str) -> float | None:
