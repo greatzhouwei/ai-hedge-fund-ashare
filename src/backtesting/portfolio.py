@@ -79,10 +79,22 @@ class Portfolio:
     def get_realized_gains(self) -> Mapping[str, TickerRealizedGains]:
         return MappingProxyType(self._portfolio["realized_gains"])  # type: ignore[arg-type]
 
+    def _ensure_position(self, ticker: str) -> None:
+        if ticker not in self._portfolio["positions"]:
+            self._portfolio["positions"][ticker] = {
+                "long": 0,
+                "short": 0,
+                "long_cost_basis": 0.0,
+                "short_cost_basis": 0.0,
+                "short_margin_used": 0.0,
+            }
+            self._portfolio["realized_gains"][ticker] = {"long": 0.0, "short": 0.0}
+
     def apply_long_buy(self, ticker: str, quantity: int, price: float) -> int:
         if quantity <= 0:
             return 0
         quantity = int(quantity)
+        self._ensure_position(ticker)
         position = self._portfolio["positions"][ticker]
         cost = quantity * price
         if cost <= self._portfolio["cash"]:
@@ -112,6 +124,7 @@ class Portfolio:
         return 0
 
     def apply_long_sell(self, ticker: str, quantity: int, price: float) -> int:
+        self._ensure_position(ticker)
         position = self._portfolio["positions"][ticker]
         quantity = min(int(quantity), position["long"]) if quantity > 0 else 0
         if quantity <= 0:
@@ -129,6 +142,7 @@ class Portfolio:
         if quantity <= 0:
             return 0
         quantity = int(quantity)
+        self._ensure_position(ticker)
         position = self._portfolio["positions"][ticker]
         proceeds = price * quantity
         margin_ratio = self._portfolio["margin_requirement"]
@@ -170,6 +184,7 @@ class Portfolio:
         return 0
 
     def apply_short_cover(self, ticker: str, quantity: int, price: float) -> int:
+        self._ensure_position(ticker)
         position = self._portfolio["positions"][ticker]
         quantity = min(int(quantity), position["short"]) if quantity > 0 else 0
         if quantity <= 0:

@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.backtesting.jq_adapter import JQDataAdapter
+from src.backtesting.jq_adapter_tushare import TushareJQAdapter
 from src.backtesting.jq_indicators import adx, bbands, ema, rsi
 
 WEIGHTS = {
@@ -27,7 +27,7 @@ def _to_yyyymmdd(date_str: str) -> str:
     return date_str.replace("-", "")
 
 
-def get_candidate_stocks(adapter: JQDataAdapter, date: str) -> list[str]:
+def get_candidate_stocks(adapter: TushareJQAdapter, date: str) -> list[str]:
     """Filter universe: exclude 科创/创业/北交/ST/新股."""
     df = adapter.get_all_securities(date)
     if df.empty:
@@ -57,7 +57,7 @@ def get_candidate_stocks(adapter: JQDataAdapter, date: str) -> list[str]:
 # ==================== 1. 基本面打分 ====================
 
 def score_fundamentals(
-    adapter: JQDataAdapter, tickers: list[str], date: str
+    adapter: TushareJQAdapter, tickers: list[str], date: str
 ) -> tuple[dict[str, float], dict[str, dict]]:
     # Raw data for manual TTM calculations
     income = adapter.get_income_history(tickers, date, limit=24)
@@ -81,33 +81,30 @@ def score_fundamentals(
         # --- Profitability: fina_indicator with raw-data fallback ---
         row_f = df_f.iloc[0] if df_f is not None and not df_f.empty else None
         roe = _roe_ttm(df_f)
-        net_margin = _pct(row_f, "netprofit_margin") if row_f is not None else None
+        net_margin = None
         op_margin = None
 
         if df_inc is not None and not df_inc.empty:
-            op_ttm_vals = _ttm_series(df_inc, "operate_profit")
             rev_ttm_vals = _ttm_series(df_inc, "revenue")
-            if op_ttm_vals and rev_ttm_vals and abs(rev_ttm_vals[0]) > 1e-9:
-                op_margin = op_ttm_vals[0] / rev_ttm_vals[0]
+            # 优先手动 TTM 计算利润率
+            if rev_ttm_vals and abs(rev_ttm_vals[0]) > 1e-9:
+                np_ttm_vals = _ttm_series(df_inc, "n_income_attr_p")
+                if np_ttm_vals:
+                    net_margin = np_ttm_vals[0] / rev_ttm_vals[0]
+                op_ttm_vals = _ttm_series(df_inc, "operate_profit")
+                if op_ttm_vals:
+                    op_margin = op_ttm_vals[0] / rev_ttm_vals[0]
+        # fallback to fina_indicator cumulative margins
+        if net_margin is None and row_f is not None:
+            net_margin = _pct(row_f, "netprofit_margin")
         if op_margin is None and row_f is not None:
             op_margin = _pct(row_f, "profit_to_gr")
 
         if roe is None and df_inc is not None and not df_inc.empty and df_bal is not None and not df_bal.empty:
-            np_ttm_vals = _ttm_series(df_inc, "n_income")
+            np_ttm_vals = _ttm_series(df_inc, "n_income_attr_p")
             eq = df_bal.iloc[0].get("total_hldr_eqy_exc_min_int")
             if np_ttm_vals and pd.notna(eq) and eq != 0:
                 roe = np_ttm_vals[0] / float(eq)
-
-        if net_margin is None and df_inc is not None and not df_inc.empty:
-            np_ttm_vals = _ttm_series(df_inc, "n_income")
-            rev_ttm_vals = _ttm_series(df_inc, "revenue")
-            if np_ttm_vals and rev_ttm_vals and abs(rev_ttm_vals[0]) > 1e-9:
-                net_margin = np_ttm_vals[0] / rev_ttm_vals[0]
-
-        # --- Growth: manual TTM ---
-        rev_growth = _ttm_yoy(df_inc, "total_revenue") if df_inc is not None else None
-        np_growth = _ttm_yoy(df_inc, "n_income") if df_inc is not None else None
-        bv_growth = _bv_growth(df_bal) if df_bal is not None else None
 
         # --- Health ratios from balance sheet ---
         cr = _latest_balance_ratio(df_bal, "total_cur_assets", "total_cur_liab")
@@ -138,37 +135,17 @@ def score_fundamentals(
 
         score = 0.0
 
-        # profitability
-        prof_score = 0
+        # profitability (sub-module cap 0.40)
+        prof_score = 0.0
         if roe is not None and roe > 0.15:
-            score += 0.20
-            prof_score += 1
+            prof_score += 0.20
         if net_margin is not None and net_margin > 0.20:
-            score += 0.15
-            prof_score += 1
+            prof_score += 0.10
         if op_margin is not None and op_margin > 0.15:
-            score += 0.15
-            prof_score += 1
-        prof_sig = "bullish" if prof_score >= 2 else "bearish" if prof_score == 0 else "neutral"
-
-        # growth
-        growth_score = 0
-        if rev_growth is not None:
-            if rev_growth > 0.20:
-                score += 0.15
-                growth_score += 1
-            elif rev_growth > 0.10:
-                score += 0.08
-        if np_growth is not None:
-            if np_growth > 0.20:
-                score += 0.15
-                growth_score += 1
-            elif np_growth > 0.10:
-                score += 0.08
-        if bv_growth is not None and bv_growth > 0.10:
-            score += 0.10
-            growth_score += 1
-        growth_sig = "bullish" if growth_score >= 2 else "bearish" if growth_score == 0 else "neutral"
+            prof_score += 0.10
+        prof_score = min(prof_score, 0.40)
+        score += prof_score
+        prof_sig = "bullish" if prof_score >= 0.30 else "bearish" if prof_score == 0 else "neutral"
 
         # health
         health_score = 0
@@ -201,10 +178,6 @@ def score_fundamentals(
         details[t] = {
             "profitability": {
                 "roe": roe, "net_margin": net_margin, "op_margin": op_margin, "signal": prof_sig
-            },
-            "growth": {
-                "rev_growth": rev_growth, "np_growth": np_growth, "bv_growth": bv_growth,
-                "signal": growth_sig
             },
             "health": {
                 "curr_ratio": cr, "de_ratio": de, "fcf_ps": fcf_ps, "eps": eps,
@@ -400,13 +373,85 @@ def _trend_slope(series: list[float | None]) -> float:
     sum_x2 = sum(i * i for i in x)
     try:
         slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x)
-        return slope * 100
+        return slope
     except ZeroDivisionError:
         return 0.0
 
 
+def calculate_sustainability(
+    ttm_ocf: float | None,
+    ttm_np: float | None,
+    gm_hist: list[float | None],
+    rev_growth: float | None,
+    np_growth: float | None,
+) -> float:
+    """Sustainability factor: min(cf_quality * margin_stability * growth_reasonableness, 1.0)."""
+    # 1. cf_quality — cash flow quality (only effective when ttm_np > 0)
+    cf_quality = 1.0
+    if ttm_np is not None and ttm_np > 0:
+        if ttm_ocf is None:
+            cf_quality = 0.70
+        else:
+            ratio = ttm_ocf / ttm_np
+            if ratio < 0:
+                cf_quality = 0.40
+            elif ratio < 0.3:
+                cf_quality = 0.60
+            elif ratio < 0.5:
+                cf_quality = 0.80
+            elif ratio <= 1.2:
+                cf_quality = 0.85 + 0.15 * (ratio - 0.5) / 0.7
+            else:
+                cf_quality = 1.00
+
+    # 2. margin_stability — CV of gross margin (last 4 quarters)
+    margin_stability = 1.0
+    clean_gm = [v for v in gm_hist if v is not None and not (isinstance(v, float) and np.isnan(v))]
+    if len(clean_gm) >= 4:
+        recent = clean_gm[:4]
+        mean_gm = np.mean(recent)
+        std_gm = np.std(recent)
+        if abs(mean_gm) > 1e-9:
+            cv = std_gm / abs(mean_gm)
+            if cv > 0.5:
+                margin_stability = 0.50
+            elif cv > 0.3:
+                margin_stability = 0.70
+            elif cv > 0.15:
+                margin_stability = 0.85
+            else:
+                margin_stability = 1.00
+
+    # 3. growth_reasonableness — penalize extreme growth
+    growth_reasonableness = 1.0
+    if rev_growth is not None:
+        if rev_growth < 0:
+            growth_reasonableness = 0.90
+        elif rev_growth > 2.0:   # >200%
+            growth_reasonableness = 0.30
+        elif rev_growth > 1.0:   # >100%
+            growth_reasonableness = 0.50
+        elif rev_growth > 0.5:   # >50%
+            growth_reasonableness = 0.70
+        elif rev_growth > 0.2:   # >20%
+            growth_reasonableness = 0.85
+        else:
+            growth_reasonableness = 1.00
+
+        if np_growth is not None:
+            if np_growth > 5.0:
+                growth_reasonableness *= 0.50
+            elif np_growth > 2.0:
+                growth_reasonableness *= 0.70
+            elif np_growth > 1.0:
+                growth_reasonableness *= 0.85
+
+    sustainability = min(cf_quality * margin_stability * growth_reasonableness, 1.0)
+    return sustainability
+
+
 def score_growth(
-    adapter: JQDataAdapter, tickers: list[str], date: str
+    adapter: TushareJQAdapter, tickers: list[str], date: str
 ) -> tuple[dict[str, float], dict[str, dict]]:
     # Raw financial data for TTM calculation
     income = adapter.get_income_history(tickers, date, limit=24)
@@ -428,18 +473,25 @@ def score_growth(
 
         # --- Growth metrics ---
         rev_growth = _ttm_yoy(df_inc, "total_revenue") if df_inc is not None else None
-        # EPS growth: cumulative -> single-quarter (diff) -> TTM (rolling 4) -> YoY, matching JQ
         eps_growth = _ttm_yoy(df_inc, "basic_eps") if df_inc is not None else None
-        # FCF growth: JQ uses OCF only (no capex subtraction), same algorithm as EPS
         fcf_growth = _ocf_ttm_yoy(df_cf) if df_cf is not None else None
+        np_growth = _ttm_yoy(df_inc, "n_income_attr_p") if df_inc is not None else None
+        bv_growth = _bv_growth(df_bal) if df_bal is not None else None
 
         rev_yoy = _ttm_yoy_series(df_inc, "total_revenue") if df_inc is not None else []
         eps_yoy = _ttm_yoy_series(df_inc, "basic_eps") if df_inc is not None else []
         fcf_yoy = _ocf_ttm_yoy_series(df_cf) if df_cf is not None else []
 
+        # JQ uses up to 12-period history for trends (_trend_slope limits internally)
         rev_trend = _trend_slope(rev_yoy)
         eps_trend = _trend_slope(eps_yoy)
         fcf_trend = _trend_slope(fcf_yoy)
+
+        # --- TTM OCF and NP for cf_quality ---
+        ocf_ttm_vals = _ttm_series(df_cf, "n_cashflow_act") if df_cf is not None else []
+        np_ttm_vals = _ttm_series(df_inc, "n_income_attr_p") if df_inc is not None else []
+        ttm_ocf = ocf_ttm_vals[0] if ocf_ttm_vals else None
+        ttm_np = np_ttm_vals[0] if np_ttm_vals else None
 
         # --- Margins: TTM latest + cumulative history ---
         gm, nm, om = None, None, None
@@ -450,7 +502,7 @@ def score_growth(
             rev_ttm_vals = _ttm_series(df_inc, "revenue")
             cost_ttm_vals = _ttm_series(df_inc, "oper_cost")
             op_ttm_vals = _ttm_series(df_inc, "operate_profit")
-            np_ttm_vals = _ttm_series(df_inc, "n_income")
+            np_ttm_vals = _ttm_series(df_inc, "n_income_attr_p")
             if rev_ttm_vals:
                 rev_latest = rev_ttm_vals[0]
                 for i in range(len(rev_ttm_vals)):
@@ -485,69 +537,52 @@ def score_growth(
         om_trend = _trend_slope(om_hist)
         nm_trend = _trend_slope(nm_hist)
 
-        # --- Health ratios ---
-        de = _latest_balance_ratio(df_bal, "total_liab", "total_hldr_eqy_exc_min_int")
-        cr = _latest_balance_ratio(df_bal, "total_cur_assets", "total_cur_liab")
-        if de is None and df_f is not None and not df_f.empty:
-            de = _f_row(df_f, 0, "debt_to_eqt")
-        if cr is None and df_f is not None and not df_f.empty:
-            cr = _f_row(df_f, 0, "current_ratio")
-
         # --- Valuation ---
         row_v = val_dict.get(t)
         pe = _f(row_v, "pe_ttm") if row_v is not None else None
         ps = _f(row_v, "ps_ttm") if row_v is not None else None
 
-        # NP growth for PEG from fina_indicator
-        np_growth_val = None
-        if df_f is not None and not df_f.empty:
-            np_growth_val = _pct_row(df_f, 0, "dt_netprofit_yoy")
-            if np_growth_val is None or np_growth_val <= 0:
-                np_growth_val = _pct_row(df_f, 0, "netprofit_yoy")
-
+        # PEG = PE / (TTM 归母净利润同比增长 × 100), growth capped at 200%
         peg = None
-        if pe is not None and np_growth_val is not None and np_growth_val > 0:
-            np_growth_capped = min(np_growth_val * 100, 200.0)
+        if pe is not None and np_growth is not None and np_growth > 0:
+            np_growth_capped = min(np_growth * 100, 200.0)
             peg = pe / np_growth_capped
             if peg < 0.01:
                 peg = None
 
-        # --- Sub-scores (matching JQ structure) ---
-        # 1. Growth trends (weight 0.50)
+        # --- Sub-scores ---
+        # 1. Growth trends
         growth_score = 0.0
         if rev_growth is not None:
             if rev_growth > 0.20:
-                growth_score += 0.35
+                growth_score += 0.25
             elif rev_growth > 0.10:
-                growth_score += 0.20
-            if rev_trend > 0:
                 growth_score += 0.15
+            if rev_trend > 0:
+                growth_score += 0.10
         if eps_growth is not None:
             if eps_growth > 0.20:
                 growth_score += 0.25
             elif eps_growth > 0.10:
-                growth_score += 0.10
+                growth_score += 0.15
             if eps_trend > 0:
-                growth_score += 0.05
+                growth_score += 0.10
         if fcf_growth is not None and fcf_growth > 0.15:
-            growth_score += 0.20
+            growth_score += 0.25
+        if bv_growth is not None and bv_growth > 0.10:
+            growth_score += 0.10
         growth_score = min(growth_score, 1.0)
 
-        # 2. Valuation (weight 0.20)
+        # 2. Valuation (PEG only)
         val_score = 0.0
         if peg is not None:
             if peg < 1.0:
                 val_score += 0.50
             elif peg < 2.0:
                 val_score += 0.25
-        if ps is not None:
-            if ps < 2.0:
-                val_score += 0.50
-            elif ps < 5.0:
-                val_score += 0.25
         val_score = min(val_score, 1.0)
 
-        # 3. Margin trends (weight 0.20)
+        # 3. Margin trends
         margin_score = 0.0
         if gm is not None:
             if gm > 0.5:
@@ -563,27 +598,14 @@ def score_growth(
             margin_score += 0.20
         margin_score = min(margin_score, 1.0)
 
-        # 4. Financial health (weight 0.10)
-        health_score = 1.0
-        if de is not None:
-            if de > 1.5:
-                health_score -= 0.50
-            elif de > 0.8:
-                health_score -= 0.20
-        if cr is not None:
-            if cr < 1.0:
-                health_score -= 0.50
-            elif cr < 1.5:
-                health_score -= 0.20
-        health_score = max(health_score, 0.0)
-
-        # Weighted composite
-        score = (
+        # Weighted composite (growth=0.50, val=0.25, margin=0.25)
+        raw_score = (
             growth_score * 0.50
-            + val_score * 0.20
-            + margin_score * 0.20
-            + health_score * 0.10
+            + val_score * 0.25
+            + margin_score * 0.25
         )
+        sustainability = calculate_sustainability(ttm_ocf, ttm_np, gm_hist, rev_growth, np_growth)
+        score = raw_score * sustainability
         scores[t] = score
 
         signal = "bullish" if score > 0.6 else "bearish" if score < 0.4 else "neutral"
@@ -592,13 +614,16 @@ def score_growth(
         details[t] = {
             "signal": signal,
             "confidence": confidence,
-            "weighted_score": round(score, 2),
+            "weighted_score": round(score, 4),
+            "raw_score": round(raw_score, 4),
+            "sustainability": round(sustainability, 4),
             "revenue_growth": rev_growth,
             "revenue_trend": rev_trend,
             "eps_growth": eps_growth,
             "eps_trend": eps_trend,
             "fcf_growth": fcf_growth,
             "fcf_trend": fcf_trend,
+            "bv_growth": bv_growth,
             "peg": peg,
             "ps": ps,
             "gross_margin": gm,
@@ -607,12 +632,9 @@ def score_growth(
             "om_trend": om_trend,
             "net_margin": nm,
             "nm_trend": nm_trend,
-            "debt_to_equity": de,
-            "current_ratio": cr,
             "growth_score": growth_score,
             "val_score": val_score,
             "margin_score": margin_score,
-            "health_score": health_score,
         }
 
     return scores, details
@@ -653,7 +675,7 @@ def _hurst_rs(ts):
 # ==================== 3. 技术面打分 ====================
 
 def score_technical(
-    adapter: JQDataAdapter, tickers: list[str], date: str
+    adapter: TushareJQAdapter, tickers: list[str], date: str
 ) -> tuple[dict[str, float], dict[str, dict]]:
     df_prices = adapter.get_prices(tickers, date, count=COUNT_TECH)
     if df_prices.empty:
@@ -685,9 +707,9 @@ def score_technical(
         ema_bearish = ema_valid and ema8 < ema21 and ema21 < ema55
 
         if adx_latest > 25 and ema_bullish:
-            tf_bullish = 0.5 + trend_strength * 0.5
+            tf_bullish = 0.6 + trend_strength * 0.4
         elif adx_latest > 25 and ema_bearish:
-            tf_bullish = 0.5 - trend_strength * 0.5
+            tf_bullish = 0.4 - trend_strength * 0.4
         else:
             tf_bullish = 0.5
 
@@ -703,9 +725,9 @@ def score_technical(
         if price_vs_bb < 20 or rsi14 < 30:
             mr_bullish = 1.0
         elif price_vs_bb > 80 or rsi14 > 70:
-            mr_bullish = 0.4
+            mr_bullish = 0.0
         else:
-            mr_bullish = 0.7
+            mr_bullish = 0.5
 
         mom_3m = close[-1] / close[-60] - 1.0 if len(close) >= 60 else 0.0
         mom_6m = close[-1] / close[-120] - 1.0 if len(close) >= 120 else 0.0
@@ -713,9 +735,9 @@ def score_technical(
         if mom_3m > 0 and mom_6m > 0:
             mom_bullish = 1.0
         elif mom_3m < 0 and mom_6m < 0:
-            mom_bullish = 0.4
+            mom_bullish = 0.0
         else:
-            mom_bullish = 0.7
+            mom_bullish = 0.5
 
         returns = s_close.pct_change().dropna()
         vol_regime = np.nan
@@ -730,11 +752,11 @@ def score_technical(
             if vol_regime < 0.8:
                 vol_bullish = 1.0
             elif vol_regime > 1.2:
-                vol_bullish = 0.4
+                vol_bullish = 0.0
             else:
-                vol_bullish = 0.7
+                vol_bullish = 0.5
         else:
-            vol_bullish = 0.7
+            vol_bullish = 0.5
 
         w = {"tf": 0.20, "mr": 0.25, "mom": 0.35, "vol": 0.20}
         bullish = (
@@ -784,7 +806,7 @@ def combine_scores(
 
 
 def run_screener(
-    adapter: JQDataAdapter,
+    adapter: TushareJQAdapter,
     date: str,
     top_n: int = 20,
     max_per_industry: int = 2,
@@ -899,7 +921,7 @@ def main():
     parser.add_argument("--output", default=None, help="Output JSON path")
     args = parser.parse_args()
 
-    adapter = JQDataAdapter(args.db_path)
+    adapter = TushareJQAdapter()
     results, details = run_screener(adapter, args.date, top_n=args.top_n)
 
     print(f"Date: {args.date} | Candidates: {len(results)}")

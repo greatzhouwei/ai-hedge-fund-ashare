@@ -227,18 +227,22 @@ class JQDataAdapter:
         tickers = df["ts_code"].unique().tolist()
         batch_size = 500
         all_adj: list[pd.DataFrame] = []
-        for i in range(0, len(tickers), batch_size):
-            batch = tickers[i : i + batch_size]
-            placeholders = ",".join(["?" for _ in batch])
-            query = f"""
-            SELECT ts_code, trade_date, adj_factor
-            FROM adj_factor
-            WHERE ts_code IN ({placeholders})
-              AND trade_date <= ?
-            """
-            adj_df = self.conn.execute(query, batch + [end_date_num]).fetchdf()
-            if not adj_df.empty:
-                all_adj.append(adj_df)
+        try:
+            for i in range(0, len(tickers), batch_size):
+                batch = tickers[i : i + batch_size]
+                placeholders = ",".join(["?" for _ in batch])
+                query = f"""
+                SELECT ts_code, trade_date, adj_factor
+                FROM adj_factor
+                WHERE ts_code IN ({placeholders})
+                  AND trade_date <= ?
+                """
+                adj_df = self.conn.execute(query, batch + [end_date_num]).fetchdf()
+                if not adj_df.empty:
+                    all_adj.append(adj_df)
+        except Exception:
+            # adj_factor table may not exist; return unadjusted prices
+            return df
 
         if not all_adj:
             return df

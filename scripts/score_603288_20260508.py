@@ -19,8 +19,8 @@ from src.backtesting.jq_screener import (
 )
 
 DB_PATH = Path("db/tushare_data.db")
-TS_CODE = "603288.SH"
-DATE = "2026-05-08"
+TS_CODE = "605286.SH"
+DATE = "2025-01-02"
 
 
 def main():
@@ -28,7 +28,7 @@ def main():
     tickers = [TS_CODE]
 
     print("=" * 70)
-    print(f"  股票: {TS_CODE} (海天味业)")
+    print(f"  股票: {TS_CODE} (同力日升)")
     print(f"  日期: {DATE}")
     print("=" * 70)
 
@@ -101,6 +101,7 @@ def main():
 
     growth_score = growth_scores.get(TS_CODE, 0)
     print(f"\n  >>> 成长性总分  = {growth_score:.4f} (满分 1.0)")
+    print(f"      raw_score={gd.get('raw_score')}, sustainability={gd.get('sustainability')}")
     print(f"      signal={gd.get('signal')}, confidence={gd.get('confidence')}%")
 
     # 3. 技术面打分
