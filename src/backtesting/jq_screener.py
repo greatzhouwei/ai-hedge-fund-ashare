@@ -13,9 +13,9 @@ from src.backtesting.jq_adapter_tushare import TushareJQAdapter
 from src.backtesting.jq_indicators import adx, bbands, ema, rsi
 
 WEIGHTS = {
-    "fundamentals": 0.35,
-    "growth": 0.40,
-    "technical": 0.25,
+    "fundamentals": 0.45,
+    "growth": 0.25,
+    "technical": 0.30,
 }
 
 COUNT_TECH = 130
@@ -137,15 +137,19 @@ def score_fundamentals(
 
         # profitability (sub-module cap 0.40)
         prof_score = 0.0
+        prof_count = 0
         if roe is not None and roe > 0.15:
             prof_score += 0.20
+            prof_count += 1
         if net_margin is not None and net_margin > 0.20:
             prof_score += 0.10
+            prof_count += 1
         if op_margin is not None and op_margin > 0.15:
             prof_score += 0.10
+            prof_count += 1
         prof_score = min(prof_score, 0.40)
         score += prof_score
-        prof_sig = "bullish" if prof_score >= 0.30 else "bearish" if prof_score == 0 else "neutral"
+        prof_sig = "bullish" if prof_count >= 2 else "bearish" if prof_count == 0 else "neutral"
 
         # health
         health_score = 0
@@ -604,8 +608,7 @@ def score_growth(
             + val_score * 0.25
             + margin_score * 0.25
         )
-        sustainability = calculate_sustainability(ttm_ocf, ttm_np, gm_hist, rev_growth, np_growth)
-        score = raw_score * sustainability
+        score = raw_score
         scores[t] = score
 
         signal = "bullish" if score > 0.6 else "bearish" if score < 0.4 else "neutral"
@@ -616,7 +619,6 @@ def score_growth(
             "confidence": confidence,
             "weighted_score": round(score, 4),
             "raw_score": round(raw_score, 4),
-            "sustainability": round(sustainability, 4),
             "revenue_growth": rev_growth,
             "revenue_trend": rev_trend,
             "eps_growth": eps_growth,
@@ -808,9 +810,11 @@ def combine_scores(
 def run_screener(
     adapter: TushareJQAdapter,
     date: str,
-    top_n: int = 20,
+    top_n: int = 10,
     max_per_industry: int = 2,
     weights: dict[str, float] | None = None,
+    min_combined_score: float = 0.70,
+    min_tech_score: float = 0.35,
 ) -> tuple[list[tuple[str, float]], dict]:
     """Run full 3-dimension screener for a single date."""
     candidates = get_candidate_stocks(adapter, date)
@@ -822,13 +826,31 @@ def run_screener(
     tech_scores, tech_details = score_technical(adapter, candidates, date)
 
     combined = combine_scores(fund_scores, growth_scores, tech_scores, weights)
-    sorted_stocks = sorted(combined.items(), key=lambda x: x[1], reverse=True)
+
+    # Hard filters
+    filtered: dict[str, float] = {}
+    for t, score in combined.items():
+        tech = tech_scores.get(t, 0.0)
+        tech_detail = tech_details.get(t, {})
+        mom_bullish = tech_detail.get("mom_bullish", 0.5)
+        # 技术面总分 < 0.35 直接排除
+        if tech < min_tech_score:
+            continue
+        # 动量分 == 0.0 直接排除
+        if mom_bullish == 0.0:
+            continue
+        filtered[t] = score
+
+    sorted_stocks = sorted(filtered.items(), key=lambda x: x[1], reverse=True)
 
     industries = adapter.get_industry([s for s, _ in sorted_stocks], date)
 
     target_list: list[tuple[str, float]] = []
     industry_count: dict[str, int] = {}
     for t, score in sorted_stocks:
+        # 综合得分 < 0.70 终止选股（允许空仓观望）
+        if score < min_combined_score:
+            break
         ind = industries.get(t, "未知")
         if industry_count.get(ind, 0) >= max_per_industry:
             continue
