@@ -10,7 +10,7 @@ import pandas as pd
 class JQDataAdapter:
     def __init__(self, db_path: str | None = None):
         if db_path is None:
-            db_path = os.environ.get("TUSHARE_DB_PATH", "db/tushare_data.db")
+            db_path = os.environ.get("TUSHARE_DB_PATH", "src/data/tushare_data.db")
         self.db_path = str(Path(db_path).resolve())
         self._conn: duckdb.DuckDBPyConnection | None = None
 

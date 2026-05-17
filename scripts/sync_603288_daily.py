@@ -10,7 +10,7 @@ import duckdb
 import pandas as pd
 import tushare as ts
 
-DB_PATH = Path("db/tushare_data.db")
+DB_PATH = Path("src/data/tushare_data.db")
 TS_CODE = "603288.SH"
 START_DATE = "20260506"
 END_DATE = "20260508"

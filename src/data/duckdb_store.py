@@ -12,7 +12,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "db" / "tushare_data.db"
+DEFAULT_DB_PATH = Path(__file__).parent / "tushare_data.db"
 
 
 class DuckDBStore:

@@ -14,7 +14,7 @@ import duckdb
 import pandas as pd
 import tushare as ts
 
-DB_PATH = Path("db/tushare_data.db")
+DB_PATH = Path("src/data/tushare_data.db")
 PROGRESS_PATH = Path("db/sync_fina_indicator_progress.jsonl")
 SLEEP_SEC = 0.5
 

@@ -40,7 +40,7 @@ def generate_rebalance_dates(start: str, end: str, freq: str) -> list[str]:
     import duckdb
     import os
 
-    db_path = os.environ.get("TUSHARE_DB_PATH", "db/tushare_data.db")
+    db_path = os.environ.get("TUSHARE_DB_PATH", "src/data/tushare_data.db")
     conn = duckdb.connect(db_path, read_only=True)
     df = conn.execute(
         """

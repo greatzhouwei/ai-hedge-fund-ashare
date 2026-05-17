@@ -12,7 +12,7 @@ import duckdb
 import pandas as pd
 import tushare as ts
 
-DB_PATH = Path("db/tushare_data.db")
+DB_PATH = Path("src/data/tushare_data.db")
 TS_CODE = "603288.SH"
 SLEEP_SEC = 0.5
 

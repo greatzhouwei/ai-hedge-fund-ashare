@@ -9,13 +9,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.backtesting.jq_adapter_tushare import TushareJQAdapter
+from src.backtesting.jq_adapter import JQDataAdapter
 from src.backtesting.jq_indicators import adx, bbands, ema, rsi
 
 WEIGHTS = {
-    "fundamentals": 0.45,
-    "growth": 0.25,
-    "technical": 0.30,
+    "fundamentals": 0.35,
+    "growth": 0.40,
+    "technical": 0.25,
 }
 
 COUNT_TECH = 130
@@ -27,29 +27,59 @@ def _to_yyyymmdd(date_str: str) -> str:
     return date_str.replace("-", "")
 
 
-def get_candidate_stocks(adapter: TushareJQAdapter, date: str) -> list[str]:
-    """Filter universe: exclude 科创/创业/北交/ST/新股."""
-    df = adapter.get_all_securities(date)
+def get_candidate_stocks(adapter: JQDataAdapter, date: str) -> list[str]:
+    """Filter universe: exclude 科创/创业/北交/ST/停牌/新股."""
+    prev_date = _prev_trade_date(adapter, date)
+    df = adapter.get_all_securities(prev_date)
     if df.empty:
         return []
 
     df["code"] = df["ts_code"].str.split(".").str[0]
     df["name"] = df["name"].fillna("")
 
-    date_obj = datetime.strptime(date, "%Y-%m-%d")
-    one_year_ago = (date_obj - timedelta(days=365)).strftime("%Y%m%d")
+    prev_date_obj = datetime.strptime(prev_date, "%Y-%m-%d")
+
+    # 停牌过滤：查询前一交易日有交易记录的股票
+    prev_date_num = prev_date.replace("-", "")
+    traded = set(
+        r[0] for r in adapter.conn.execute(
+            "SELECT DISTINCT ts_code FROM daily WHERE trade_date = ?", [prev_date_num]
+        ).fetchall()
+    )
+
+    # ST过滤：用 namechange 历史名称（回测时点），而非 stock_basic 当前名称
+    hist_names = adapter.conn.execute(
+        """
+        SELECT ts_code, name AS hist_name FROM (
+            SELECT ts_code, name,
+                   ROW_NUMBER() OVER (PARTITION BY ts_code ORDER BY start_date DESC) AS rn
+            FROM namechange
+            WHERE start_date <= ?
+        ) WHERE rn = 1
+        """,
+        [prev_date_num],
+    ).fetchdf()
+    if not hist_names.empty:
+        df = df.merge(hist_names, on="ts_code", how="left")
+        df["check_name"] = df["hist_name"].fillna(df["name"])
+    else:
+        df["check_name"] = df["name"]
+
+    # 新股过滤：与聚宽逻辑一致 (previous_date - start_date) < 365天
+    list_date_obj = pd.to_datetime(df["list_date"], format="%Y%m%d", errors="coerce")
+    days_since_list = (prev_date_obj - list_date_obj).dt.days
 
     mask = (
-        ~df["code"].str.startswith("688")  # 科创
-        & ~df["code"].str.startswith("300")  # 创业板
-        & ~df["code"].str.startswith("301")  # 创业板(注册制)
+        ~df["code"].str.startswith("68")  # 科创
+        & ~df["code"].str.startswith("30")  # 创业板
         & ~df["code"].str.startswith("8")
         & ~df["code"].str.startswith("4")
         & ~df["code"].str.startswith("92")
         & ~df["code"].str.startswith("93")
         & ~df["code"].str.startswith("94")
-        & ~df["name"].str.contains(r"ST|\*ST|退", case=False, na=False)
-        & (df["list_date"] <= one_year_ago)
+        & ~df["check_name"].str.contains(r"ST|\*ST|退", case=False, na=False)
+        & (days_since_list >= 365)
+        & df["ts_code"].isin(traded)  # 排除停牌
     )
     return df.loc[mask, "ts_code"].tolist()
 
@@ -57,7 +87,7 @@ def get_candidate_stocks(adapter: TushareJQAdapter, date: str) -> list[str]:
 # ==================== 1. 基本面打分 ====================
 
 def score_fundamentals(
-    adapter: TushareJQAdapter, tickers: list[str], date: str
+    adapter: JQDataAdapter, tickers: list[str], date: str
 ) -> tuple[dict[str, float], dict[str, dict]]:
     # Raw data for manual TTM calculations
     income = adapter.get_income_history(tickers, date, limit=24)
@@ -65,16 +95,32 @@ def score_fundamentals(
     balance = adapter.get_balance_history(tickers, date, limit=5)
     # Indicator for ROE and margins (need 5 periods to derive 4 quarterly ROEs)
     fina = adapter.get_fina_indicator_history(tickers, date, limit=5)
-    val = adapter.get_valuation(tickers, date)
+    prev_date = _prev_trade_date(adapter, date)
+    val = adapter.get_valuation(tickers, prev_date)
     val_dict = {r["ts_code"]: r for _, r in val.iterrows()} if not val.empty else {}
 
     scores: dict[str, float] = {}
     details: dict[str, dict] = {}
+    base_scores: dict[str, float] = {}
+    sustainability_inputs: dict[str, tuple[float | None, float | None, float | None]] = {}
+
+    # Query listing years for pre-IPO filtering (matching JQ)
+    placeholders = ",".join(["?"] * len(tickers))
+    list_dates_df = adapter.conn.execute(
+        f"SELECT ts_code, list_date FROM stock_basic WHERE ts_code IN ({placeholders})",
+        tickers,
+    ).fetchdf()
+    list_year_map: dict[str, int | None] = {}
+    for _, r in list_dates_df.iterrows():
+        ld = r["list_date"]
+        if pd.notna(ld) and str(ld):
+            list_year_map[r["ts_code"]] = int(str(ld)[:4])
 
     for t in tickers:
-        df_inc = income.get(t)
-        df_cf = cashflow.get(t)
-        df_bal = balance.get(t)
+        list_year = list_year_map.get(t)
+        df_inc = _filter_pre_ipo(income.get(t), list_year)
+        df_cf = _filter_pre_ipo(cashflow.get(t), list_year)
+        df_bal = _filter_pre_ipo(balance.get(t), list_year)
         df_f = fina.get(t)
         row_v = val_dict.get(t)
 
@@ -88,7 +134,7 @@ def score_fundamentals(
             rev_ttm_vals = _ttm_series(df_inc, "revenue")
             # 优先手动 TTM 计算利润率
             if rev_ttm_vals and abs(rev_ttm_vals[0]) > 1e-9:
-                np_ttm_vals = _ttm_series(df_inc, "n_income_attr_p")
+                np_ttm_vals = _ttm_series(df_inc, "n_income")
                 if np_ttm_vals:
                     net_margin = np_ttm_vals[0] / rev_ttm_vals[0]
                 op_ttm_vals = _ttm_series(df_inc, "operate_profit")
@@ -177,8 +223,8 @@ def score_fundamentals(
             val_score += 1
         val_sig = "bullish" if val_score >= 2 else "bearish" if val_score == 0 else "neutral"
 
-        score = min(score, 1.0)
-        scores[t] = score
+        base_score = min(score, 1.0)
+        base_scores[t] = base_score
         details[t] = {
             "profitability": {
                 "roe": roe, "net_margin": net_margin, "op_margin": op_margin, "signal": prof_sig
@@ -188,8 +234,104 @@ def score_fundamentals(
                 "signal": health_sig
             },
             "valuation": {"pe": pe, "pb": pb, "ps": ps, "signal": val_sig},
-            "overall": score,
+            "overall": base_score,
         }
+
+        # --- 可持续性指标采集 ---
+        ocf_ttm_vals = _ttm_series(df_cf, "n_cashflow_act") if df_cf is not None else []
+        np_ttm_vals = _ttm_series(df_inc, "n_income_attr_p") if df_inc is not None else []
+        ttm_ocf = ocf_ttm_vals[0] if ocf_ttm_vals else None
+        ttm_np = np_ttm_vals[0] if np_ttm_vals else None
+        cf_ratio = ttm_ocf / ttm_np if ttm_np is not None and ttm_np > 0 and ttm_ocf is not None else None
+
+        # 毛利率CV（聚宽使用单季毛利率最近4期，ddof=1）
+        margin_cv = None
+        if df_inc is not None and not df_inc.empty and "oper_cost" in df_inc.columns:
+            rev_sq = _to_single_quarter(df_inc, "total_revenue")
+            cost_sq = _to_single_quarter(df_inc, "oper_cost")
+            if len(rev_sq) >= 4 and len(cost_sq) >= 4:
+                gm_hist = []
+                for i in range(len(rev_sq)):
+                    r = float(rev_sq.iloc[i])
+                    c = float(cost_sq.iloc[i]) if i < len(cost_sq) else None
+                    if c is not None and abs(r) > 1e-9:
+                        gm_hist.append((r - c) / r)
+                clean_gm = [v for v in gm_hist if v is not None and not (isinstance(v, float) and np.isnan(v))]
+                if len(clean_gm) >= 4:
+                    recent = clean_gm[-4:]
+                    mean_gm = np.mean(recent)
+                    if abs(mean_gm) > 1e-9:
+                        margin_cv = np.std(recent, ddof=1) / abs(mean_gm)
+
+        rev_growth = _ttm_yoy(df_inc, "total_revenue") if df_inc is not None else None
+        sustainability_inputs[t] = (cf_ratio, margin_cv, rev_growth)
+
+    # ==================== 可持续性因子 ====================
+    all_cf_ratios = [v[0] for v in sustainability_inputs.values() if v[0] is not None]
+
+    # 计算所有原始可持续性分
+    sustainability_raws: dict[str, dict] = {}
+    for t in tickers:
+        cf_ratio, margin_cv, rev_growth = sustainability_inputs[t]
+
+        # 1. 现金流质量（全市场百分位制）
+        if cf_ratio is None:
+            cf_score = 0.50
+        else:
+            cf_p30 = np.percentile(all_cf_ratios, 30)
+            cf_p50 = np.percentile(all_cf_ratios, 50)
+            cf_p70 = np.percentile(all_cf_ratios, 70)
+            if cf_ratio >= cf_p70:
+                cf_score = 1.00
+            elif cf_ratio >= cf_p50:
+                cf_score = 0.85
+            elif cf_ratio >= cf_p30:
+                cf_score = 0.70
+            else:
+                cf_score = 0.50
+
+        # 2. 毛利率稳定性（CV阈值制）
+        if margin_cv is None:
+            cv_score = 0.80
+        elif margin_cv < 0.15:
+            cv_score = 1.00
+        elif margin_cv < 0.30:
+            cv_score = 0.80
+        else:
+            cv_score = 0.60
+
+        # 3. 增长合理性（增长率区间制）
+        if rev_growth is None:
+            rg_score = 0.85
+        elif rev_growth < 0:
+            rg_score = 0.70
+        elif rev_growth <= 0.30:
+            rg_score = 1.00
+        elif rev_growth <= 0.50:
+            rg_score = 0.85
+        elif rev_growth <= 1.00:
+            rg_score = 0.70
+        else:
+            rg_score = 0.50
+
+        raw = cf_score * cv_score * rg_score
+        sustainability_raws[t] = {
+            "cf_ratio": cf_ratio,
+            "margin_cv": margin_cv,
+            "rev_growth": rev_growth,
+            "cf_score": cf_score,
+            "cv_score": cv_score,
+            "rg_score": rg_score,
+            "raw": raw,
+        }
+
+    # 可持续性因子已禁用（factor 固定为 1.0）
+    for t in tickers:
+        info = sustainability_raws[t]
+        info["factor"] = 1.0
+        details[t]["sustainability"] = info
+        scores[t] = base_scores[t]
+        details[t]["overall"] = scores[t]
 
     return scores, details
 
@@ -231,6 +373,26 @@ def _ttm_yoy(df: pd.DataFrame, value_col: str) -> float | None:
     if abs(prior) < 1e-9:
         return None
     return (current - prior) / abs(prior)
+
+
+def _sq_yoy(df: pd.DataFrame, value_col: str) -> float | None:
+    """Compute latest single-quarter YoY growth (JQ style for revenue)."""
+    sq = _to_single_quarter(df, value_col)
+    if len(sq) < 5:
+        return None
+    current = float(sq.iloc[-1])
+    prior = float(sq.iloc[-5])
+    if abs(prior) < 1e-9:
+        return None
+    return (current - prior) / abs(prior)
+
+
+def _filter_pre_ipo(df: pd.DataFrame | None, list_year: int | None) -> pd.DataFrame | None:
+    """Filter out financial data from listing year and before (matching JQ)."""
+    if df is None or df.empty or list_year is None:
+        return df
+    years = df["end_date"].astype(str).str[:4].astype(int)
+    return df[years > list_year].copy()
 
 
 def _fcf_ttm_series(df_cf: pd.DataFrame) -> list[float]:
@@ -377,85 +539,13 @@ def _trend_slope(series: list[float | None]) -> float:
     sum_x2 = sum(i * i for i in x)
     try:
         slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x)
-        return slope
+        return slope * 100
     except ZeroDivisionError:
         return 0.0
 
 
-def calculate_sustainability(
-    ttm_ocf: float | None,
-    ttm_np: float | None,
-    gm_hist: list[float | None],
-    rev_growth: float | None,
-    np_growth: float | None,
-) -> float:
-    """Sustainability factor: min(cf_quality * margin_stability * growth_reasonableness, 1.0)."""
-    # 1. cf_quality — cash flow quality (only effective when ttm_np > 0)
-    cf_quality = 1.0
-    if ttm_np is not None and ttm_np > 0:
-        if ttm_ocf is None:
-            cf_quality = 0.70
-        else:
-            ratio = ttm_ocf / ttm_np
-            if ratio < 0:
-                cf_quality = 0.40
-            elif ratio < 0.3:
-                cf_quality = 0.60
-            elif ratio < 0.5:
-                cf_quality = 0.80
-            elif ratio <= 1.2:
-                cf_quality = 0.85 + 0.15 * (ratio - 0.5) / 0.7
-            else:
-                cf_quality = 1.00
-
-    # 2. margin_stability — CV of gross margin (last 4 quarters)
-    margin_stability = 1.0
-    clean_gm = [v for v in gm_hist if v is not None and not (isinstance(v, float) and np.isnan(v))]
-    if len(clean_gm) >= 4:
-        recent = clean_gm[:4]
-        mean_gm = np.mean(recent)
-        std_gm = np.std(recent)
-        if abs(mean_gm) > 1e-9:
-            cv = std_gm / abs(mean_gm)
-            if cv > 0.5:
-                margin_stability = 0.50
-            elif cv > 0.3:
-                margin_stability = 0.70
-            elif cv > 0.15:
-                margin_stability = 0.85
-            else:
-                margin_stability = 1.00
-
-    # 3. growth_reasonableness — penalize extreme growth
-    growth_reasonableness = 1.0
-    if rev_growth is not None:
-        if rev_growth < 0:
-            growth_reasonableness = 0.90
-        elif rev_growth > 2.0:   # >200%
-            growth_reasonableness = 0.30
-        elif rev_growth > 1.0:   # >100%
-            growth_reasonableness = 0.50
-        elif rev_growth > 0.5:   # >50%
-            growth_reasonableness = 0.70
-        elif rev_growth > 0.2:   # >20%
-            growth_reasonableness = 0.85
-        else:
-            growth_reasonableness = 1.00
-
-        if np_growth is not None:
-            if np_growth > 5.0:
-                growth_reasonableness *= 0.50
-            elif np_growth > 2.0:
-                growth_reasonableness *= 0.70
-            elif np_growth > 1.0:
-                growth_reasonableness *= 0.85
-
-    sustainability = min(cf_quality * margin_stability * growth_reasonableness, 1.0)
-    return sustainability
-
-
 def score_growth(
-    adapter: TushareJQAdapter, tickers: list[str], date: str
+    adapter: JQDataAdapter, tickers: list[str], date: str
 ) -> tuple[dict[str, float], dict[str, dict]]:
     # Raw financial data for TTM calculation
     income = adapter.get_income_history(tickers, date, limit=24)
@@ -463,16 +553,30 @@ def score_growth(
     balance = adapter.get_balance_history(tickers, date, limit=5)
     # Fallback data from fina_indicator
     fina = adapter.get_fina_indicator_history(tickers, date, limit=12)
-    val = adapter.get_valuation(tickers, date)
+    prev_date = _prev_trade_date(adapter, date)
+    val = adapter.get_valuation(tickers, prev_date)
     val_dict = {r["ts_code"]: r for _, r in val.iterrows()} if not val.empty else {}
 
     scores: dict[str, float] = {}
     details: dict[str, dict] = {}
 
+    # Query listing years for pre-IPO filtering (matching JQ)
+    placeholders = ",".join(["?"] * len(tickers))
+    list_dates_df = adapter.conn.execute(
+        f"SELECT ts_code, list_date FROM stock_basic WHERE ts_code IN ({placeholders})",
+        tickers,
+    ).fetchdf()
+    list_year_map: dict[str, int | None] = {}
+    for _, r in list_dates_df.iterrows():
+        ld = r["list_date"]
+        if pd.notna(ld) and str(ld):
+            list_year_map[r["ts_code"]] = int(str(ld)[:4])
+
     for t in tickers:
-        df_inc = income.get(t)
-        df_cf = cashflow.get(t)
-        df_bal = balance.get(t)
+        list_year = list_year_map.get(t)
+        df_inc = _filter_pre_ipo(income.get(t), list_year)
+        df_cf = _filter_pre_ipo(cashflow.get(t), list_year)
+        df_bal = _filter_pre_ipo(balance.get(t), list_year)
         df_f = fina.get(t)
 
         # --- Growth metrics ---
@@ -506,7 +610,7 @@ def score_growth(
             rev_ttm_vals = _ttm_series(df_inc, "revenue")
             cost_ttm_vals = _ttm_series(df_inc, "oper_cost")
             op_ttm_vals = _ttm_series(df_inc, "operate_profit")
-            np_ttm_vals = _ttm_series(df_inc, "n_income_attr_p")
+            np_ttm_vals = _ttm_series(df_inc, "n_income")
             if rev_ttm_vals:
                 rev_latest = rev_ttm_vals[0]
                 for i in range(len(rev_ttm_vals)):
@@ -677,9 +781,10 @@ def _hurst_rs(ts):
 # ==================== 3. 技术面打分 ====================
 
 def score_technical(
-    adapter: TushareJQAdapter, tickers: list[str], date: str
+    adapter: JQDataAdapter, tickers: list[str], date: str
 ) -> tuple[dict[str, float], dict[str, dict]]:
-    df_prices = adapter.get_prices(tickers, date, count=COUNT_TECH)
+    tech_date = _prev_trade_date(adapter, date)
+    df_prices = adapter.get_prices(tickers, tech_date, count=COUNT_TECH)
     if df_prices.empty:
         return {}, {}
 
@@ -807,8 +912,21 @@ def combine_scores(
     return combined
 
 
+def _prev_trade_date(adapter: JQDataAdapter, date: str) -> str:
+    """Return previous trading day via Tushare trade_cal table."""
+    d = date.replace("-", "")
+    row = adapter.conn.execute(
+        "SELECT pretrade_date FROM trade_cal WHERE exchange = 'SSE' AND cal_date = ?",
+        [d],
+    ).fetchone()
+    if row:
+        p = str(row[0])
+        return f"{p[:4]}-{p[4:6]}-{p[6:]}"
+    return date
+
+
 def run_screener(
-    adapter: TushareJQAdapter,
+    adapter: JQDataAdapter,
     date: str,
     top_n: int = 10,
     max_per_industry: int = 2,
@@ -827,19 +945,8 @@ def run_screener(
 
     combined = combine_scores(fund_scores, growth_scores, tech_scores, weights)
 
-    # Hard filters
-    filtered: dict[str, float] = {}
-    for t, score in combined.items():
-        tech = tech_scores.get(t, 0.0)
-        tech_detail = tech_details.get(t, {})
-        mom_bullish = tech_detail.get("mom_bullish", 0.5)
-        # 技术面总分 < 0.35 直接排除
-        if tech < min_tech_score:
-            continue
-        # 动量分 == 0.0 直接排除
-        if mom_bullish == 0.0:
-            continue
-        filtered[t] = score
+    # Hard filters disabled for JQ alignment comparison
+    filtered = combined
 
     sorted_stocks = sorted(filtered.items(), key=lambda x: x[1], reverse=True)
 
@@ -848,9 +955,7 @@ def run_screener(
     target_list: list[tuple[str, float]] = []
     industry_count: dict[str, int] = {}
     for t, score in sorted_stocks:
-        # 综合得分 < 0.70 终止选股（允许空仓观望）
-        if score < min_combined_score:
-            break
+        # min_combined_score filter disabled for JQ alignment
         ind = industries.get(t, "未知")
         if industry_count.get(ind, 0) >= max_per_industry:
             continue
@@ -939,11 +1044,11 @@ def main():
     parser = argparse.ArgumentParser(description="JQ-style 3-dimension screener")
     parser.add_argument("--date", required=True, help="YYYY-MM-DD")
     parser.add_argument("--top-n", type=int, default=20)
-    parser.add_argument("--db-path", default="db/tushare_data.db")
+    parser.add_argument("--db-path", default="src/data/tushare_data.db")
     parser.add_argument("--output", default=None, help="Output JSON path")
     args = parser.parse_args()
 
-    adapter = TushareJQAdapter()
+    adapter = JQDataAdapter()
     results, details = run_screener(adapter, args.date, top_n=args.top_n)
 
     print(f"Date: {args.date} | Candidates: {len(results)}")

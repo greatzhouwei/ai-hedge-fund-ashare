@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 os.environ.setdefault(
-    "TUSHARE_DB_PATH", str(Path("db/tushare_data.db").resolve())
+    "TUSHARE_DB_PATH", str(Path("src/data/tushare_data.db").resolve())
 )
 
 from src.backtesting.jq_adapter import JQDataAdapter
@@ -33,7 +33,7 @@ from src.backtesting.jq_screener import run_screener
 def generate_rebalance_dates(start: str, end: str, freq: str) -> list[str]:
     import duckdb
 
-    db_path = os.environ.get("TUSHARE_DB_PATH", "db/tushare_data.db")
+    db_path = os.environ.get("TUSHARE_DB_PATH", "src/data/tushare_data.db")
     conn = duckdb.connect(db_path, read_only=True)
     df = conn.execute(
         """
@@ -89,7 +89,7 @@ def main():
         "--rebalance-freq", default="month", choices=["month", "quarter"]
     )
     parser.add_argument("--top-n", type=int, default=20)
-    parser.add_argument("--db-path", default="db/tushare_data.db")
+    parser.add_argument("--db-path", default="src/data/tushare_data.db")
     args = parser.parse_args()
 
     dates = generate_rebalance_dates(

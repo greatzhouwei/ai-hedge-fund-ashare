@@ -1,0 +1,18 @@
+{
+  "rmse": 0.1344990167756421,
+  "raw_coefficients": {
+    "fund_score": 0.005972,
+    "growth_score": -0.020945,
+    "tech_score": -0.061878
+  },
+  "normalized_weights": {
+    "fund_score": 1.0,
+    "growth_score": 0.0,
+    "tech_score": 0.0
+  },
+  "correlations": {
+    "fund_score": -0.001416,
+    "growth_score": -0.034739,
+    "tech_score": -0.080676
+  }
+}

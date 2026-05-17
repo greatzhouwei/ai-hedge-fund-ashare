@@ -12,7 +12,7 @@ import pandas as pd
 def load_ticker_data(ts_code: str, db_path: str | None = None) -> pd.DataFrame:
     """Load daily OHLCV for a single ticker from DuckDB."""
     if db_path is None:
-        db_path = os.environ.get("TUSHARE_DB_PATH", "db/tushare_data.db")
+        db_path = os.environ.get("TUSHARE_DB_PATH", "src/data/tushare_data.db")
 
     conn = duckdb.connect(db_path, read_only=True)
     df = conn.execute(

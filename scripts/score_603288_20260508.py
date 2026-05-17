@@ -18,7 +18,7 @@ from src.backtesting.jq_screener import (
     WEIGHTS,
 )
 
-DB_PATH = Path("db/tushare_data.db")
+DB_PATH = Path("src/data/tushare_data.db")
 TS_CODE = "605286.SH"
 DATE = "2025-01-02"
 

@@ -21,7 +21,7 @@ load_dotenv("D:/app/hedge-fund/.env")
 
 # Use read-only DB copy to avoid locking the active sync DB
 import os
-os.environ["TUSHARE_DB_PATH"] = str(Path("db/tushare_data_read.db").resolve())
+os.environ["TUSHARE_DB_PATH"] = str(Path("src/data/tushare_data.db").resolve())
 
 import duckdb
 from src.data.cache import get_cache

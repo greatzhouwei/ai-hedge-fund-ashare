@@ -264,7 +264,7 @@ def weighted_signal_combination(signals, weights):
 
 
 def main():
-    conn = duckdb.connect("db/tushare_data.db", read_only=True)
+    conn = duckdb.connect("src/data/tushare_data.db", read_only=True)
     df = conn.execute("""
         SELECT trade_date, open, high, low, close, vol as volume
         FROM daily

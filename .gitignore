@@ -65,3 +65,28 @@ outputs/
 
 # Alembic (keep migration files, but ignore generated/cache files)
 app/backend/alembic/versions/__pycache__/
+# Temporary / debug scripts
+check_*.py
+debug_*.py
+analyze_*.py
+calc_*.py
+fetch_*.py
+show_*.py
+run_backtest_*.py
+score_*.py
+sync_*.py
+screen_*.py
+tech_*.py
+
+# Results and cache
+.tushare_cache/
+.claude/
+db/
+training_data.parquet
+benchmark_*.json
+monthly_portfolios_*.json
+backtest_monthly_result*.json
+
+# Data directories
+batch_screener_results/
+weights/rolling_weights.csv
